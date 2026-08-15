@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { AskUserValidationError, normalizeQuestionnaire } from "../src/normalize.ts";
+import type { AskUserParams } from "../src/schema.ts";
 
-const validParams = {
+const validParams: AskUserParams = {
   title: "Decide the stack",
   intro: "We need a decision before scaffolding.",
   questions: [
@@ -24,7 +25,7 @@ const validParams = {
       placeholder: "Optional",
     },
   ],
-} as const;
+};
 
 describe("normalizeQuestionnaire", () => {
   it("normalizes a valid questionnaire and resolves recommendations", () => {
@@ -41,7 +42,7 @@ describe("normalizeQuestionnaire", () => {
   });
 
   it("rejects a choice question with fewer than 2 options", () => {
-    const bad = {
+    const bad: AskUserParams = {
       title: "T",
       questions: [
         {
@@ -57,7 +58,7 @@ describe("normalizeQuestionnaire", () => {
   });
 
   it("rejects duplicate option values", () => {
-    const bad = {
+    const bad: AskUserParams = {
       title: "T",
       questions: [
         {
@@ -76,7 +77,7 @@ describe("normalizeQuestionnaire", () => {
   });
 
   it("rejects a recommendation that is not an option value", () => {
-    const bad = {
+    const bad: AskUserParams = {
       title: "T",
       questions: [
         {
