@@ -13,7 +13,7 @@ A single `ask_user` tool: no bloat, no extra packages, no build step. Sourced fr
 - **Comments at every level** — per question, option, or whole form
 - **Review before submit** — inspect and edit every answer
 - **Structured outcome** — `submitted` when complete; `needs_discussion` when unanswered, so the agent follows up instead of assuming
-- **Session integration** — completed forms appear as `ask_user` entries, expandable in the transcript
+- **Session integration** — completed forms appear as `ask_user` entries, expandable in the transcript; each completed form is labeled `decision`, visible and filterable in pi's `/tree`
 
 ## Install
 
@@ -40,6 +40,14 @@ The agent calls the `ask_user` tool. You answer in the form, review, submit. Pi 
 
 Headless sessions (print/RPC without UI) error out with a clear message — `ask_user` requires the interactive TUI.
 
+### Deprecated fields
+
+Top-level `allowPartialSubmit` and choice `required` / `initial` / `allowOther` (text `required` / `initial`) are rejected with a clear error pointing at the replacement — use `recommendation` for suggested answers and the `needs_discussion` outcome for unanswered questions.
+
+### Text input
+
+When the host TUI exposes a custom editor component, text answers use it; otherwise a built-in fallback editor handles input.
+
 ### Config
 
 Optional prompt-surface overrides live in pi config under an `ask-user` section:
@@ -61,6 +69,16 @@ Optional prompt-surface overrides live in pi config under an `ask-user` section:
   }
 }
 ```
+
+Additional prompt-surface fields:
+
+- `$reset` — array of field names to restore to package defaults before other overrides apply
+- `prependPromptGuidelines` / `appendPromptGuidelines` — string arrays inserted before / after `promptGuidelines`
+- `description` / `promptSnippet` — direct overrides of the tool description and prompt snippet
+
+### Events
+
+The extension emits `pi-ask:ask-user:start` and `pi-ask:ask-user:end` on `pi.events` (payload `{ source: "pi-ask" }`), bracketing each form run — useful for consumers to track decision points.
 
 ## Development
 
