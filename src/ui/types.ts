@@ -8,7 +8,6 @@ import type { AskUserController } from "../session/controller.ts";
 import type {
   AskUserInteractionResult,
   AskUserOutcome,
-  NormalizedQuestionnaire,
 } from "../types.ts";
 
 // `EditorFactory` isn't re-exported from the package root; derive it from the
@@ -33,11 +32,6 @@ export interface RunQuestionnaireOptions {
   signal?: AbortSignal;
   /** Callback to toggle tool output expansion (Ctrl+O passthrough). */
   onToggleToolsExpanded?: () => void;
-}
-
-export interface RenderContext {
-  questionnaire: NormalizedQuestionnaire;
-  options: RunQuestionnaireOptions;
 }
 
 export interface FormArgs {

@@ -200,10 +200,3 @@ function restoreTerminalTitle(ctx: AskUserExecutionContext, sessionName: string 
 function asFunction<T extends (...args: never[]) => unknown>(value: unknown): T | undefined {
   return typeof value === "function" ? (value as T) : undefined;
 }
-
-export { AskUserValidationError, normalizeQuestionnaire } from "./normalize.ts";
-export { AskUserController } from "./session/controller.ts";
-export {
-  promptGuidelines as askUserPromptGuidelines,
-  promptSnippet as askUserPromptSnippet,
-} from "./tool/guidance.ts";

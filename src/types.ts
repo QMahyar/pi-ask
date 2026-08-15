@@ -114,16 +114,6 @@ export const ASK_USER_LIMITS = {
 
 // ── Guards ─────────────────────────────────────────────────────────
 
-export function isChoiceQuestion(
-  question: NormalizedQuestion,
-): question is NormalizedChoiceQuestion {
-  return question.type === "choice";
-}
-
-export function isTextQuestion(question: NormalizedQuestion): question is NormalizedTextQuestion {
-  return question.type === "text";
-}
-
 export function isErrorDetails(details: unknown): details is AskUserErrorDetails {
   return (
     typeof details === "object" && details !== null && "kind" in details && details.kind === "error"
