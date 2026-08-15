@@ -128,7 +128,6 @@ export function notifyToolPromptSurfaceDiagnostics(
 
 // ── Scope helpers ──────────────────────────────────────────────────────────
 
-// biome-ignore lint/complexity/useMaxParams: resolver dispatch with diagnostics
 function applyPromptSurfaceScope(
   current: SuiPiToolPromptSurface,
   options: ResolveToolPromptSurfaceOptions,
@@ -152,7 +151,6 @@ function applyPromptSurfaceScope(
   );
 }
 
-// biome-ignore lint/complexity/useMaxParams: per-scope config merger with diagnostics
 function applyPromptSurfaceConfig(
   current: SuiPiToolPromptSurface,
   defaults: SuiPiToolPromptSurface,
@@ -276,7 +274,6 @@ function getResetFields(
   return fields;
 }
 
-// biome-ignore lint/complexity/useMaxParams: validation helper with diagnostics
 function getOptionalNonEmptyString(
   value: unknown,
   field: string,
@@ -290,7 +287,6 @@ function getOptionalNonEmptyString(
   return undefined;
 }
 
-// biome-ignore lint/complexity/useMaxParams: validation helper with diagnostics
 function getOptionalStringArray(
   value: unknown,
   field: string,
@@ -317,7 +313,6 @@ function pushInvalidConfig(
   detail: string,
 ): void {
   deps.diagnostics.push({
-    // biome-ignore lint/security/noSecrets: false positive on string constant
     code: "invalidPromptSurfaceConfig",
     scope: deps.scope,
     section: deps.options.section,
@@ -326,7 +321,6 @@ function pushInvalidConfig(
   });
 }
 
-// biome-ignore lint/complexity/useMaxParams: diagnostics utility with many fields
 function pushInvalidField(
   options: ResolveToolPromptSurfaceOptions,
   scope: PromptSurfaceScope,
@@ -335,7 +329,6 @@ function pushInvalidField(
   detail: string,
 ): void {
   diagnostics.push({
-    // biome-ignore lint/security/noSecrets: false positive on string constant
     code: "invalidPromptSurfaceField",
     scope,
     section: options.section,

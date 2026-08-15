@@ -94,7 +94,6 @@ function registerAskUserTool(
     promptGuidelines: surface.promptGuidelines,
     parameters: AskUserParamsSchema,
     executionMode: "sequential",
-    // biome-ignore lint/complexity/useMaxParams: pi ToolDefinition.execute signature
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {
       return executeAskUser(params, signal, ctx, lock, pi, getSessionName());
     },
@@ -104,7 +103,6 @@ function registerAskUserTool(
   });
 }
 
-// biome-ignore lint/complexity/useMaxParams: keep the execution boundary explicit for tests
 export async function executeAskUser(
   params: AskUserParams,
   signal: AbortSignal | undefined,

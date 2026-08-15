@@ -34,7 +34,6 @@ export function readJsonFile(filePath: string): Record<string, unknown> | null {
   try {
     parsed = JSON.parse(content);
   } catch {
-    // biome-ignore lint/suspicious/noConsole: deliberate config parse warning
     console.warn(`[pi-ask-core] Failed to parse config file, ignoring: ${filePath}`);
     return null;
   }
@@ -43,7 +42,6 @@ export function readJsonFile(filePath: string): Record<string, unknown> | null {
     return parsed as Record<string, unknown>;
   }
 
-  // biome-ignore lint/suspicious/noConsole: deliberate config parse warning
   console.warn(`[pi-ask-core] Config file root is not an object, ignoring: ${filePath}`);
   return null;
 }
@@ -61,9 +59,7 @@ export function loadPiAskConfigSectionForScope(
   options: { scope: "global" | "project" } & PiAskConfigOptions,
 ): Record<string, unknown> | null {
   const configPath =
-    options.scope === "global"
-      ? getGlobalConfigPath(options.homeDir)
-      : getProjectConfigPath(cwd);
+    options.scope === "global" ? getGlobalConfigPath(options.homeDir) : getProjectConfigPath(cwd);
   const config = readJsonFile(configPath);
   return extractSection(config, section);
 }

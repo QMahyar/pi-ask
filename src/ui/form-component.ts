@@ -1,4 +1,3 @@
-// biome-ignore lint/style/noExcessiveLinesPerFile: complex keyboard orchestration
 import {
   type Component,
   Editor,
