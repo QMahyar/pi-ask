@@ -253,11 +253,16 @@ function resolveIndexes(args: {
 
 /** Decodes JSON-style Unicode escapes that models sometimes emit literally in display text. */
 function normalizeDisplayText(value: string): string {
-  return value
-    .replace(/\\u([0-9a-fA-F]{4})/g, (_escape, hex: string) =>
-      String.fromCharCode(Number.parseInt(hex, 16)),
-    )
-    .trim();
+  return (
+    value
+      .replace(/\\u([0-9a-fA-F]{4})/g, (_escape, hex: string) =>
+        String.fromCharCode(Number.parseInt(hex, 16)),
+      )
+      // biome-ignore lint/suspicious/noControlCharactersInRegex: deliberate C0 control stripping
+      .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "")
+      .replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, "\uFFFD")
+      .trim()
+  );
 }
 
 function trimOptional(value: string | undefined): string | undefined {

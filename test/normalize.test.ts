@@ -96,3 +96,100 @@ describe("normalizeQuestionnaire", () => {
     expect(() => normalizeQuestionnaire(bad)).toThrow(AskUserValidationError);
   });
 });
+
+describe("normalizeDisplayText sanitization", () => {
+  it("strips ESC characters and ANSI escape text from option labels", () => {
+    const rawEscLabel = "Bad\u001b[31mLabel";
+    const escapeTextLabel = "Bad\\u001b[31mLabel";
+    const q = normalizeQuestionnaire({
+      title: "T",
+      questions: [
+        {
+          type: "choice",
+          id: "c",
+          header: "C",
+          prompt: "P?",
+          options: [
+            { value: "a", label: rawEscLabel },
+            { value: "b", label: escapeTextLabel },
+          ],
+        },
+      ],
+    });
+    const [choice] = q.questions;
+    if (choice.type === "choice") {
+      expect(choice.options[0]?.label.includes("\u001b")).toBe(false);
+      expect(choice.options[1]?.label.includes("\u001b")).toBe(false);
+      expect(choice.options[0]?.label).toBe("Bad[31mLabel");
+      expect(choice.options[1]?.label).toBe("Bad[31mLabel");
+    }
+  });
+
+  it("keeps newlines in headers", () => {
+    const q = normalizeQuestionnaire({
+      title: "T",
+      questions: [
+        {
+          type: "choice",
+          id: "c",
+          header: "Line1\nLine2",
+          prompt: "P?",
+          options: [
+            { value: "a", label: "A" },
+            { value: "b", label: "B" },
+          ],
+        },
+      ],
+    });
+    const [choice] = q.questions;
+    if (choice.type === "choice") {
+      expect(choice.header).toBe("Line1\nLine2");
+    }
+  });
+
+  it("keeps tabs in prompts", () => {
+    const q = normalizeQuestionnaire({
+      title: "T",
+      questions: [
+        {
+          type: "choice",
+          id: "c",
+          header: "C",
+          prompt: "a\tb",
+          options: [
+            { value: "a", label: "A" },
+            { value: "b", label: "B" },
+          ],
+        },
+      ],
+    });
+    const [choice] = q.questions;
+    if (choice.type === "choice") {
+      expect(choice.prompt).toBe("a\tb");
+    }
+  });
+
+  it("replaces lone surrogates with U+FFFD", () => {
+    const q = normalizeQuestionnaire({
+      title: "T",
+      questions: [
+        {
+          type: "choice",
+          id: "c",
+          header: "C",
+          prompt: "P?",
+          options: [
+            { value: "a", label: "A\uD83D lone" },
+            { value: "b", label: "B" },
+          ],
+        },
+      ],
+    });
+    const [choice] = q.questions;
+    if (choice.type === "choice") {
+      expect(choice.options[0]?.label.includes("\uD83D")).toBe(false);
+      expect(choice.options[0]?.label).toContain("\uFFFD");
+      expect(choice.options[0]?.label).toBe("A\uFFFD lone");
+    }
+  });
+});
