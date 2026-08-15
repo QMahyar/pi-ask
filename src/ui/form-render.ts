@@ -3,6 +3,7 @@ import { type EditorComponent, truncateToWidth, wrapTextWithAnsi } from "@earend
 import type { AskUserController } from "../session/controller.ts";
 import type { NormalizedChoiceQuestion } from "../types.ts";
 import {
+  choiceMarker,
   formatSplitLine,
   padRight,
   pushWrappedWithPrefix,
@@ -214,11 +215,6 @@ function renderChoiceOptionLines(
   }
 
   return lines;
-}
-
-function choiceMarker(multi: boolean, selected: boolean): string {
-  if (multi) return selected ? "[x]" : "[ ]";
-  return selected ? "(*)" : "( )";
 }
 
 function renderTextScreen(args: RenderFormFrameArgs): string[] {
