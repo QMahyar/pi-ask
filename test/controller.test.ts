@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { AskUserController } from "../src/session/controller.ts";
 import { normalizeQuestionnaire } from "../src/normalize.ts";
+import { AskUserController } from "../src/session/controller.ts";
 import type { NormalizedChoiceQuestion } from "../src/types.ts";
 
 function choice(options: { recommendation?: string | string[]; multi?: boolean } = {}) {
@@ -60,7 +60,10 @@ describe("AskUserController", () => {
     });
 
     it("seeds multi-select from an array recommendation", () => {
-      const controller = makeController([choice({ multi: true, recommendation: ["a", "c"] }), text()]);
+      const controller = makeController([
+        choice({ multi: true, recommendation: ["a", "c"] }),
+        text(),
+      ]);
       expect(controller.isOptionSelected("c1", "a")).toBe(true);
       expect(controller.isOptionSelected("c1", "c")).toBe(true);
       expect(controller.isOptionSelected("c1", "b")).toBe(false);
@@ -103,7 +106,10 @@ describe("AskUserController", () => {
 
   describe("toggleChoiceOption", () => {
     it("toggles multi-select options and back", () => {
-      const controller = makeController([choice({ multi: true, recommendation: ["a", "c"] }), text()]);
+      const controller = makeController([
+        choice({ multi: true, recommendation: ["a", "c"] }),
+        text(),
+      ]);
       const c = choiceQuestion(controller);
       expect(controller.isOptionSelected("c1", "a")).toBe(true);
       controller.toggleChoiceOption(c, 0);

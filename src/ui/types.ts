@@ -5,10 +5,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import type { Component, TUI } from "@earendil-works/pi-tui";
 import type { AskUserController } from "../session/controller.ts";
-import type {
-  AskUserInteractionResult,
-  AskUserOutcome,
-} from "../types.ts";
+import type { AskUserInteractionResult, AskUserOutcome } from "../types.ts";
 
 // `EditorFactory` isn't re-exported from the package root; derive it from the
 // interface method that is exported.
