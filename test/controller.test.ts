@@ -52,9 +52,9 @@ describe("AskUserController", () => {
       expect(controller.isOptionSelected("c1", "c")).toBe(false);
     });
 
-    it("pre-selects option 0 when a single-select has no recommendation (current behavior)", () => {
+    it("selects nothing when a single-select has no recommendation", () => {
       const controller = makeController([choice(), text()]);
-      expect(controller.isOptionSelected("c1", "a")).toBe(true);
+      expect(controller.isOptionSelected("c1", "a")).toBe(false);
       expect(controller.isOptionSelected("c1", "b")).toBe(false);
       expect(controller.isOptionSelected("c1", "c")).toBe(false);
     });
@@ -284,6 +284,17 @@ describe("AskUserController", () => {
       const outcome = controller.outcome();
       expect(outcome.outcome).toBe("needs_discussion");
       expect(outcome.responses[1]?.answer.answered).toBe(false);
+    });
+
+    it("needs_discussion for a single-select choice without a recommendation left untouched", () => {
+      const controller = makeController([choice()]);
+      const outcome = controller.outcome();
+      expect(outcome.outcome).toBe("needs_discussion");
+      expect(outcome.responses[0]?.answer).toEqual({
+        kind: "choice",
+        answered: false,
+        options: [],
+      });
     });
 
     it("a commented-but-unselected option appears with selected: false", () => {

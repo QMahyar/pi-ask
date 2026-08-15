@@ -129,7 +129,6 @@ function normalizeChoice(question: ExternalChoiceQuestion): NormalizedChoiceQues
       options,
       value: question.recommendation,
       multi,
-      defaultToFirst: !multi,
     }),
   };
 }
@@ -223,12 +222,9 @@ function resolveIndexes(args: {
   options: NormalizedOption[];
   value: string | string[] | undefined;
   multi: boolean;
-  defaultToFirst: boolean;
 }): number[] {
-  const { questionId, options, value, multi, defaultToFirst } = args;
-  if (value === undefined) {
-    return defaultToFirst ? [0] : [];
-  }
+  const { questionId, options, value, multi } = args;
+  if (value === undefined) return [];
 
   const values = multi ? (value as string[]) : [value as string];
   const seen = new Set<string>();
