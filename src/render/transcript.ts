@@ -10,6 +10,7 @@ import type {
   NormalizedQuestion,
 } from "../types.ts";
 import { isErrorDetails } from "../types.ts";
+import { choiceMarker } from "../ui/form-render-primitives.ts";
 
 const COLLAPSED_ANSWER_LIMIT = 2;
 const DEFAULT_REVIEW_KEY = "Ctrl+O";
@@ -171,8 +172,8 @@ function formatResponseLines(
     const multi = question.type === "choice" && question.multi;
     const optionLines = resp.answer.options.map((opt) => {
       const selected = opt.selected
-        ? theme.fg("success", multi ? "[x]" : "(*)")
-        : theme.fg("dim", multi ? "[ ]" : "( )");
+        ? theme.fg("success", choiceMarker(multi, true))
+        : theme.fg("dim", choiceMarker(multi, false));
       const comment = opt.comment ? theme.fg("dim", ` (comment: ${opt.comment})`) : "";
       return `${selected} ${opt.label}${comment}`;
     });

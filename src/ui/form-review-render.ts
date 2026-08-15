@@ -3,6 +3,7 @@ import { truncateToWidth } from "@earendil-works/pi-tui";
 import type { AskUserResponse, NormalizedQuestion } from "../types.ts";
 import type { RenderFormFrameArgs } from "./form-render.ts";
 import {
+  choiceMarker,
   pushWrappedWithPrefix,
   renderMiniBox,
   safeWidth,
@@ -64,7 +65,12 @@ function renderReviewQuestionCard(
     width,
   });
 
-  const bodyLines = renderReviewResponseLines(args.theme, response, width - 3);
+  const bodyLines = renderReviewResponseLines(
+    args.theme,
+    response,
+    width - 3,
+    question.type === "choice" && question.multi,
+  );
   for (const line of bodyLines) {
     lines.push(`${prefix}${truncateToWidth(line, width - 3)}`);
   }
@@ -113,6 +119,7 @@ function renderReviewResponseLines(
   theme: Theme,
   response: AskUserResponse,
   width: number,
+  multi: boolean,
 ): string[] {
   const lines: string[] = [];
 
@@ -135,7 +142,9 @@ function renderReviewResponseLines(
   }
 
   for (const option of response.answer.options) {
-    const marker = option.selected ? theme.fg("success", "[x]") : theme.fg("dim", "[ ]");
+    const marker = option.selected
+      ? theme.fg("success", choiceMarker(multi, true))
+      : theme.fg("dim", choiceMarker(multi, false));
     const comment = option.comment ? theme.fg("dim", ` — ${option.comment}`) : "";
     lines.push(`${marker} ${option.label}${comment}`);
   }
