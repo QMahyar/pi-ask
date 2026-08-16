@@ -1,4 +1,5 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { Box, Text } from "@earendil-works/pi-tui";
 import {
   notifyToolPromptSurfaceDiagnostics,
   resolveToolPromptSurface,
@@ -75,6 +76,7 @@ export default function askUserExtension(pi: ExtensionAPI): void {
 
   // Factory-time: register with package defaults.
   registerAskUserTool(pi, lock, ASK_USER_PROMPT_SURFACE_DEFAULTS, getSessionName);
+  registerAskUserEntryRenderer(pi);
 
   // session_start: re-register with resolved prompt surface (global + trusted project config).
   pi.on("session_start", async (_event, ctx) => {
@@ -110,6 +112,34 @@ function registerAskUserTool(
     renderCall: (args, theme) => renderAskUserCall(args, theme),
     renderResult: (result, options, theme, context) =>
       renderAskUserResult(result, theme, options, context),
+  });
+}
+
+// Data persisted via pi.appendEntry for each completed form. Does not participate
+// in LLM context; it is rendered in the transcript via the entry renderer below.
+export interface AskUserEntryData {
+  title?: string;
+  questions: number;
+}
+
+export function formatAskUserEntrySummary(data: AskUserEntryData): string {
+  const title = data.title?.trim() || "ask_user";
+  const count = data.questions;
+  const noun = count === 1 ? "question" : "questions";
+  return `${title} — ${count} ${noun}`;
+}
+
+function registerAskUserEntryRenderer(pi: ExtensionAPI): void {
+  pi.registerEntryRenderer<AskUserEntryData>("ask_user", (entry, { expanded }, theme) => {
+    const data: AskUserEntryData = entry.data ?? { questions: 0 };
+    const box = new Box(1, 1, (text) => theme.bg("customMessageBg", text));
+    box.addChild(
+      new Text(`${theme.fg("accent", "[ask_user]")} ${formatAskUserEntrySummary(data)}`, 0, 0),
+    );
+    if (expanded) {
+      box.addChild(new Text(theme.fg("dim", JSON.stringify(data, null, 2)), 0, 0));
+    }
+    return box;
   });
 }
 
