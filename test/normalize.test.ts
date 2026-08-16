@@ -379,6 +379,23 @@ describe("length limits", () => {
       }),
     ).toThrow(/text question "t" recommendation must be a string, not an array/);
   });
+
+  it("rejects a non-string recommendation on a text question", () => {
+    expect(() =>
+      normalizeQuestionnaire({
+        questions: [
+          { type: "text", id: "t", header: "C", prompt: "P?", recommendation: 7 },
+        ] as never,
+      }),
+    ).toThrow(/text question "t" recommendation must be a string, not a number/);
+    expect(() =>
+      normalizeQuestionnaire({
+        questions: [
+          { type: "text", id: "t", header: "C", prompt: "P?", recommendation: true },
+        ] as never,
+      }),
+    ).toThrow(/text question "t" recommendation must be a string, not a boolean/);
+  });
 });
 
 describe("normalizeDisplayText sanitization", () => {
