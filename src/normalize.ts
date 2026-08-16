@@ -220,6 +220,14 @@ function normalizeText(question: ExternalTextQuestion): NormalizedTextQuestion {
     );
   }
 
+  if (question.recommendation !== undefined && typeof question.recommendation !== "string") {
+    const kind = typeof question.recommendation;
+    const article = kind === "number" || kind === "boolean" ? "a " : kind === "object" ? "an " : "";
+    throw new AskUserValidationError(
+      `text question "${question.id}" recommendation must be a string, not ${article}${kind}.`,
+    );
+  }
+
   const placeholder = trimOptional(question.placeholder);
   if (placeholder && placeholder.length > ASK_USER_LIMITS.maxPlaceholderLength) {
     throw new AskUserValidationError(
