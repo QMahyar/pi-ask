@@ -109,6 +109,11 @@ export function normalizeQuestionnaire(params: AskUserParams): NormalizedQuestio
 }
 
 function normalizeQuestion(question: ExternalQuestion): NormalizedQuestion {
+  if (typeof question !== "object" || question === null) {
+    throw new AskUserValidationError(
+      "Each question must be an object with a type, id, header, and prompt.",
+    );
+  }
   validateCommonFields(question);
   // The flattened schema keeps the kind as a plain string enum; the runtime
   // check below discriminates, and the cast narrows for the kind-specific
@@ -201,6 +206,12 @@ function normalizeText(question: ExternalTextQuestion): NormalizedTextQuestion {
         `The "${key}" field on text questions is no longer supported. ${DEPRECATED_TEXT_REPLACEMENTS[key]}`,
       );
     }
+  }
+
+  if (question.options !== undefined || question.multi !== undefined) {
+    throw new AskUserValidationError(
+      `text question "${question.id}" cannot have options or multi — they are only valid on choice questions.`,
+    );
   }
 
   if (Array.isArray(question.recommendation)) {
@@ -316,9 +327,14 @@ function resolveIndexes(args: {
   const { questionId, options, value } = args;
   if (value === undefined) return [];
 
-  const values = Array.isArray(value) ? value : [value];
+  const values: unknown[] = Array.isArray(value) ? value : [value];
   const seen = new Set<string>();
-  return values.map((entry: string) => {
+  return values.map((entry) => {
+    if (typeof entry !== "string") {
+      throw new AskUserValidationError(
+        `choice question "${questionId}" recommendation entries must be strings (got ${typeof entry}).`,
+      );
+    }
     const trimmed = entry.trim();
     if (trimmed.length > ASK_USER_LIMITS.maxRecommendationLength) {
       throw new AskUserValidationError(
