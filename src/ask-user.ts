@@ -180,6 +180,14 @@ export async function executeAskUser(
 
     signalAttention(ctx);
     pi.events.emit("pi-ask:ask-user:start", { source: "pi-ask" });
+    // herdr lifecycle integration: mark the agent blocked while the form is on
+    // screen so herdr reports "blocked" (with the form title as message) and
+    // other agents can wait --until blocked on this session. The matching
+    // active:false is emitted in the finally block below, on every end path.
+    pi.events.emit("herdr:blocked", {
+      active: true,
+      label: questionnaire.title?.trim() || "ask_user",
+    });
 
     ctx.ui.setWorkingVisible?.(false);
     const outcome = await runQuestionnaire(questionnaire, {
@@ -222,6 +230,7 @@ export async function executeAskUser(
     signal?.removeEventListener("abort", onAbort);
     ctx.ui.setWorkingVisible?.(true);
     pi.events.emit("pi-ask:ask-user:end", { source: "pi-ask" });
+    pi.events.emit("herdr:blocked", { active: false });
     restoreTerminalTitle(ctx, sessionName);
     lock.release(owner);
   }
