@@ -487,6 +487,213 @@ describe("normalizeDisplayText sanitization", () => {
       expect(choice.options[0]?.label).toBe("A\uFFFD lone");
     }
   });
+
+  it("does not decode \\u{...}-style escapes (informational — pins current behavior)", () => {
+    expect(normalizeDisplayText("\\u{1F600}")).toBe("\\u{1F600}");
+    expect(normalizeDisplayText("a\\u{41}b")).toBe("a\\u{41}b");
+  });
+});
+
+describe("question element and count validation", () => {
+  it("rejects null and non-object question elements with AskUserValidationError, not a raw TypeError", () => {
+    expect(() => normalizeQuestionnaire({ questions: [null] as never })).toThrow(
+      AskUserValidationError,
+    );
+    expect(() => normalizeQuestionnaire({ questions: ["not an object"] as never })).toThrow(
+      AskUserValidationError,
+    );
+  });
+
+  it("rejects zero questions", () => {
+    expect(() => normalizeQuestionnaire({ questions: [] })).toThrow(
+      /1-10 questions only \(got 0\)/,
+    );
+  });
+
+  it("rejects more than 10 questions", () => {
+    const questions = Array.from({ length: 11 }, (_, i) => ({
+      type: "text",
+      id: `t${i}`,
+      header: `H${i}`,
+      prompt: `P${i}?`,
+    }));
+    expect(() => normalizeQuestionnaire({ questions })).toThrow(/1-10 questions only \(got 11\)/);
+  });
+
+  it("rejects duplicate question ids", () => {
+    expect(() =>
+      normalizeQuestionnaire({
+        questions: [
+          { type: "text", id: "dup", header: "A", prompt: "P1?" },
+          { type: "text", id: "dup", header: "B", prompt: "P2?" },
+        ],
+      }),
+    ).toThrow(/Duplicate question id "dup"/);
+  });
+});
+
+describe("id, header, and prompt validation", () => {
+  it("rejects an empty id", () => {
+    expect(() =>
+      normalizeQuestionnaire({
+        questions: [{ type: "text", id: "", header: "H", prompt: "P?" }],
+      }),
+    ).toThrow(/Question id must be a non-empty string/);
+  });
+
+  it("rejects an empty header and an empty prompt", () => {
+    expect(() =>
+      normalizeQuestionnaire({
+        questions: [{ type: "text", id: "t", header: "", prompt: "P?" }],
+      }),
+    ).toThrow('Question "t" must include a non-empty header.');
+    expect(() =>
+      normalizeQuestionnaire({
+        questions: [{ type: "text", id: "t", header: "H", prompt: "" }],
+      }),
+    ).toThrow('Question "t" must include a non-empty prompt.');
+  });
+
+  it("trims whitespace around question ids", () => {
+    const q = normalizeQuestionnaire({
+      questions: [{ type: "text", id: "  t1  ", header: "H", prompt: "P?" }],
+    });
+    expect(q.questions[0]?.id).toBe("t1");
+  });
+
+  it("rejects a whitespace-only id", () => {
+    expect(() =>
+      normalizeQuestionnaire({
+        questions: [{ type: "text", id: "   ", header: "H", prompt: "P?" }],
+      }),
+    ).toThrow(/Question id must be a non-empty string/);
+  });
+});
+
+describe("option validation", () => {
+  it("rejects 13+ options", () => {
+    const options = Array.from({ length: 13 }, (_, i) => ({ value: `v${i}`, label: `L${i}` }));
+    expect(() =>
+      normalizeQuestionnaire({
+        questions: [{ type: "choice", id: "c", header: "C", prompt: "P?", options }],
+      }),
+    ).toThrow(/must have 2-12 options \(got 13\)/);
+  });
+
+  it("rejects an empty option value and an empty option label", () => {
+    expect(() =>
+      normalizeQuestionnaire({
+        questions: [
+          {
+            type: "choice",
+            id: "c",
+            header: "C",
+            prompt: "P?",
+            options: [
+              { value: "", label: "A" },
+              { value: "b", label: "B" },
+            ],
+          },
+        ],
+      }),
+    ).toThrow(/option with empty value or label/);
+    expect(() =>
+      normalizeQuestionnaire({
+        questions: [
+          {
+            type: "choice",
+            id: "c",
+            header: "C",
+            prompt: "P?",
+            options: [
+              { value: "a", label: "   " },
+              { value: "b", label: "B" },
+            ],
+          },
+        ],
+      }),
+    ).toThrow(/option with empty value or label/);
+  });
+});
+
+describe("recommendation shape validation", () => {
+  const choiceQuestion = {
+    type: "choice",
+    id: "c",
+    header: "C",
+    prompt: "P?",
+    options: [
+      { value: "a", label: "A" },
+      { value: "b", label: "B" },
+    ],
+  };
+
+  it("rejects a plain-string recommendation on a multi-select question", () => {
+    expect(() =>
+      normalizeQuestionnaire({
+        questions: [{ ...choiceQuestion, multi: true, recommendation: "a" }],
+      }),
+    ).toThrow(/multi-select question "c" recommendation must be an array, not a string/);
+  });
+
+  it("rejects duplicate recommendation values", () => {
+    expect(() =>
+      normalizeQuestionnaire({
+        questions: [{ ...choiceQuestion, recommendation: ["a", "a"] }],
+      }),
+    ).toThrow(/duplicate recommendation value "a"/);
+  });
+
+  it("rejects non-string recommendation entries (e.g. numbers) with a clear error", () => {
+    expect(() =>
+      normalizeQuestionnaire({
+        questions: [{ ...choiceQuestion, recommendation: [1] as never }],
+      }),
+    ).toThrow(/recommendation entries must be strings \(got number\)/);
+    expect(() =>
+      normalizeQuestionnaire({
+        questions: [{ ...choiceQuestion, recommendation: 7 as never }],
+      }),
+    ).toThrow(/recommendation entries must be strings \(got number\)/);
+  });
+});
+
+describe("text question with choice-only fields", () => {
+  it("rejects options and multi on a text question instead of silently dropping them", () => {
+    expect(() =>
+      normalizeQuestionnaire({
+        questions: [
+          {
+            type: "text",
+            id: "t",
+            header: "C",
+            prompt: "P?",
+            options: [
+              { value: "a", label: "A" },
+              { value: "b", label: "B" },
+            ],
+          },
+        ] as never,
+      }),
+    ).toThrow(/text question "t" cannot have options or multi/);
+    expect(() =>
+      normalizeQuestionnaire({
+        questions: [{ type: "text", id: "t", header: "C", prompt: "P?", multi: true }] as never,
+      }),
+    ).toThrow(/text question "t" cannot have options or multi/);
+  });
+});
+
+describe("title and intro omission", () => {
+  it("omits empty or whitespace-only title and intro", () => {
+    const q = normalizeQuestionnaire({
+      title: "   ",
+      intro: "  ",
+      questions: [{ type: "text", id: "t", header: "H", prompt: "P?" }],
+    });
+    expect("title" in q).toBe(false);
+    expect("intro" in q).toBe(false);
+  });
 });
 
 describe("formatSelectedOptions", () => {
