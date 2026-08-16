@@ -1,4 +1,5 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { Box, Text } from "@earendil-works/pi-tui";
 import {
   notifyToolPromptSurfaceDiagnostics,
   resolveToolPromptSurface,
@@ -39,32 +40,43 @@ export type AskUserExecutionContext = Pick<ExtensionContext, "cwd" | "hasUI" | "
 export default function askUserExtension(pi: ExtensionAPI): void {
   const lock = new ActiveQuestionnaireLock();
   const getSessionName = createSessionNameTracker(pi);
+  let disposed = false;
+
+  pi.on("session_shutdown", () => {
+    disposed = true;
+  });
 
   // Label ask_user tool results so they're visible and filterable in /tree.
   // Use a non-awaited setTimeout: the agent awaits our handler's return before
   // it appends the tool result to the session, so we must let the handler resolve
   // first and label from a deferred callback.
   pi.on("tool_result", (event, ctx) => {
-    if (event.toolName !== ASK_USER_TOOL_NAME) return;
+    if (!shouldLabelDecision(event.toolName, event.isError)) return;
     const toolCallId = event.toolCallId;
     setTimeout(() => {
-      const entries = ctx.sessionManager.getEntries();
-      const entry = [...entries]
-        .reverse()
-        .find(
-          (e) =>
-            e.type === "message" &&
-            e.message.role === "toolResult" &&
-            e.message.toolCallId === toolCallId,
-        );
-      if (entry) {
-        pi.setLabel(entry.id, "decision");
+      if (disposed) return;
+      try {
+        const entries = ctx.sessionManager.getEntries();
+        const entry = [...entries]
+          .reverse()
+          .find(
+            (e) =>
+              e.type === "message" &&
+              e.message.role === "toolResult" &&
+              e.message.toolCallId === toolCallId,
+          );
+        if (entry) {
+          pi.setLabel(entry.id, "decision");
+        }
+      } catch {
+        // Labeling is best-effort; never throw into the timer.
       }
     }, 0);
   });
 
   // Factory-time: register with package defaults.
   registerAskUserTool(pi, lock, ASK_USER_PROMPT_SURFACE_DEFAULTS, getSessionName);
+  registerAskUserEntryRenderer(pi);
 
   // session_start: re-register with resolved prompt surface (global + trusted project config).
   pi.on("session_start", async (_event, ctx) => {
@@ -94,12 +106,40 @@ function registerAskUserTool(
     promptGuidelines: surface.promptGuidelines,
     parameters: AskUserParamsSchema,
     executionMode: "sequential",
-    async execute(_toolCallId, params, signal, _onUpdate, ctx) {
-      return executeAskUser(params, signal, ctx, lock, pi, getSessionName());
+    async execute(toolCallId, params, signal, _onUpdate, ctx) {
+      return executeAskUser(params, signal, ctx, lock, pi, getSessionName(), toolCallId);
     },
     renderCall: (args, theme) => renderAskUserCall(args, theme),
     renderResult: (result, options, theme, context) =>
       renderAskUserResult(result, theme, options, context),
+  });
+}
+
+// Data persisted via pi.appendEntry for each completed form. Does not participate
+// in LLM context; it is rendered in the transcript via the entry renderer below.
+export interface AskUserEntryData {
+  title?: string;
+  questions: number;
+}
+
+export function formatAskUserEntrySummary(data: AskUserEntryData): string {
+  const title = data.title?.trim() || "ask_user";
+  const count = data.questions;
+  const noun = count === 1 ? "question" : "questions";
+  return `${title} — ${count} ${noun}`;
+}
+
+function registerAskUserEntryRenderer(pi: ExtensionAPI): void {
+  pi.registerEntryRenderer<AskUserEntryData>("ask_user", (entry, { expanded }, theme) => {
+    const data: AskUserEntryData = entry.data ?? { questions: 0 };
+    const box = new Box(1, 1, (text) => theme.bg("customMessageBg", text));
+    box.addChild(
+      new Text(`${theme.fg("accent", "[ask_user]")} ${formatAskUserEntrySummary(data)}`, 0, 0),
+    );
+    if (expanded) {
+      box.addChild(new Text(theme.fg("dim", JSON.stringify(data, null, 2)), 0, 0));
+    }
+    return box;
   });
 }
 
@@ -110,6 +150,7 @@ export async function executeAskUser(
   lock: ActiveQuestionnaireLock,
   pi: ExtensionAPI,
   sessionName?: string,
+  toolCallId?: string,
 ): Promise<AskUserToolResult> {
   let questionnaire: NormalizedQuestionnaire;
   try {
@@ -121,21 +162,25 @@ export async function executeAskUser(
     throw error;
   }
 
-  if (!ctx.hasUI || ctx.mode !== "tui") {
+  if (!canShowForm(ctx.hasUI, ctx.mode)) {
     throw new Error(
       "ask_user requires an interactive TUI session. No user-facing form UI is available in the current mode.",
     );
   }
-  if (!lock.acquire()) {
+  const owner = toolCallId ?? `pi-ask:${++nextLockOwner}`;
+  if (!lock.acquire(owner)) {
     throw new Error(
       "another ask_user form is already in flight. Wait for it to complete before calling ask_user again.",
     );
   }
 
-  signalAttention(ctx);
-  pi.events.emit("pi-ask:ask-user:start", { source: "pi-ask" });
-
+  const onAbort = () => lock.releaseIfOwner(owner);
   try {
+    signal?.addEventListener("abort", onAbort);
+
+    signalAttention(ctx);
+    pi.events.emit("pi-ask:ask-user:start", { source: "pi-ask" });
+
     ctx.ui.setWorkingVisible?.(false);
     const outcome = await runQuestionnaire(questionnaire, {
       ui: {
@@ -161,7 +206,11 @@ export async function executeAskUser(
     // Internal cancel/abort: treat as control flow, abort the turn, and mark the tool failed.
     if (isInternalInteractionResult(outcome)) {
       ctx.abort();
-      throw new Error("The user interaction was cancelled.");
+      throw new Error(
+        outcome.kind === "abort"
+          ? "The user interaction was aborted."
+          : "The user interaction was cancelled.",
+      );
     }
 
     pi.appendEntry("ask_user", {
@@ -170,12 +219,28 @@ export async function executeAskUser(
     });
     return buildResult(questionnaire, outcome);
   } finally {
+    signal?.removeEventListener("abort", onAbort);
     ctx.ui.setWorkingVisible?.(true);
     pi.events.emit("pi-ask:ask-user:end", { source: "pi-ask" });
     restoreTerminalTitle(ctx, sessionName);
-    lock.release();
+    lock.release(owner);
   }
 }
+
+export function shouldLabelDecision(toolName: string, isError: boolean): boolean {
+  return toolName === ASK_USER_TOOL_NAME && !isError;
+}
+
+/**
+ * Whether an interactive ask_user form can be shown: requires a UI and the TUI
+ * mode. Every other mode (print, json, rpc, and SDK sessions) is headless —
+ * the form cannot be rendered there even when a dialog-capable UI exists.
+ */
+export function canShowForm(hasUI: boolean, mode: string): boolean {
+  return hasUI && mode === "tui";
+}
+
+let nextLockOwner = 0;
 
 function isInternalInteractionResult(
   outcome: AskUserOutcome | AskUserInteractionResult | "unsupported",

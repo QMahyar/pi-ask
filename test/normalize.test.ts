@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { AskUserValidationError, normalizeQuestionnaire } from "../src/normalize.ts";
+import {
+  AskUserValidationError,
+  normalizeDisplayText,
+  normalizeQuestionnaire,
+} from "../src/normalize.ts";
+import { formatSelectedOptions } from "../src/render/answer-format.ts";
 import type { AskUserParams } from "../src/schema.ts";
 
 const validParams: AskUserParams = {
@@ -95,9 +100,316 @@ describe("normalizeQuestionnaire", () => {
     };
     expect(() => normalizeQuestionnaire(bad)).toThrow(AskUserValidationError);
   });
+
+  it("accepts an array recommendation on a single-select question and resolves all indexes", () => {
+    const q = normalizeQuestionnaire({
+      title: "T",
+      questions: [
+        {
+          type: "choice",
+          id: "c",
+          header: "C",
+          prompt: "P?",
+          options: [
+            { value: "a", label: "A" },
+            { value: "b", label: "B" },
+          ],
+          recommendation: ["b"],
+        },
+      ],
+    });
+    const [choice] = q.questions;
+    if (choice.type === "choice") {
+      expect(choice.recommendedIndexes).toEqual([1]);
+    }
+  });
+
+  it("rejects duplicate question headers", () => {
+    const bad: AskUserParams = {
+      title: "T",
+      questions: [
+        {
+          type: "choice",
+          id: "a",
+          header: "Same",
+          prompt: "P1?",
+          options: [
+            { value: "x", label: "X" },
+            { value: "y", label: "Y" },
+          ],
+        },
+        {
+          type: "text",
+          id: "b",
+          header: "Same",
+          prompt: "P2?",
+        },
+      ],
+    };
+    expect(() => normalizeQuestionnaire(bad)).toThrow(/Duplicate question header "Same"/);
+  });
+
+  it("throws AskUserValidationError for non-object params instead of a raw TypeError", () => {
+    expect(() => normalizeQuestionnaire(null as never)).toThrow(AskUserValidationError);
+    expect(() => normalizeQuestionnaire(undefined as never)).toThrow(AskUserValidationError);
+    expect(() => normalizeQuestionnaire("x" as never)).toThrow(AskUserValidationError);
+    expect(() => normalizeQuestionnaire({} as never)).toThrow(
+      '"questions" must be an array of 1-10 questions.',
+    );
+  });
+
+  it("throws AskUserValidationError for a missing or non-string question id", () => {
+    expect(() =>
+      normalizeQuestionnaire({
+        title: "T",
+        questions: [
+          {
+            type: "text",
+            header: "C",
+            prompt: "P?",
+          } as never,
+        ],
+      }),
+    ).toThrow(AskUserValidationError);
+    expect(() =>
+      normalizeQuestionnaire({
+        title: "T",
+        questions: [
+          {
+            type: "text",
+            id: 7,
+            header: "C",
+            prompt: "P?",
+          } as never,
+        ],
+      }),
+    ).toThrow(AskUserValidationError);
+  });
+});
+
+describe("output-field rejection", () => {
+  it("rejects a hallucinated needs_discussion input with a clear message", () => {
+    const bad = {
+      title: "T",
+      needs_discussion: true,
+      questions: [{ type: "text", id: "t", header: "C", prompt: "P?" }],
+    } as never;
+    expect(() => normalizeQuestionnaire(bad)).toThrow(
+      "`needs_discussion` is an output field; the tool returns it when questions are unanswered — do not pass it.",
+    );
+  });
+
+  it("rejects other output fields (outcome, responses)", () => {
+    expect(() => normalizeQuestionnaire({ outcome: "submitted", questions: [] } as never)).toThrow(
+      /is an output field returned by the tool/,
+    );
+    expect(() => normalizeQuestionnaire({ responses: [], questions: [] } as never)).toThrow(
+      /is an output field returned by the tool/,
+    );
+  });
+});
+
+describe("deprecated-field messages", () => {
+  const choiceQuestion = {
+    type: "choice",
+    id: "c",
+    header: "C",
+    prompt: "P?",
+    options: [
+      { value: "a", label: "A" },
+      { value: "b", label: "B" },
+    ],
+  };
+
+  it("required on choice points at the needs_discussion outcome", () => {
+    expect(() =>
+      normalizeQuestionnaire({
+        questions: [{ ...choiceQuestion, required: true }] as never,
+      }),
+    ).toThrow(/produce the "needs_discussion" outcome/);
+  });
+
+  it("allowOther on choice points at a text question", () => {
+    expect(() =>
+      normalizeQuestionnaire({
+        questions: [{ ...choiceQuestion, allowOther: true }] as never,
+      }),
+    ).toThrow(/Use a separate text question for free-form input/);
+  });
+
+  it("initial on choice points at recommendation", () => {
+    expect(() =>
+      normalizeQuestionnaire({
+        questions: [{ ...choiceQuestion, initial: "a" }] as never,
+      }),
+    ).toThrow(/Use "recommendation" for suggested options/);
+  });
+
+  it("required on text points at the needs_discussion outcome", () => {
+    expect(() =>
+      normalizeQuestionnaire({
+        questions: [{ type: "text", id: "t", header: "C", prompt: "P?", required: true }] as never,
+      }),
+    ).toThrow(/produce the "needs_discussion" outcome/);
+  });
+
+  it("initial on text points at recommendation", () => {
+    expect(() =>
+      normalizeQuestionnaire({
+        questions: [{ type: "text", id: "t", header: "C", prompt: "P?", initial: "x" }] as never,
+      }),
+    ).toThrow(/Use "recommendation" for suggested text/);
+  });
+});
+
+describe("length limits", () => {
+  const choiceQuestion = {
+    type: "choice",
+    id: "c",
+    header: "C",
+    prompt: "P?",
+    options: [
+      { value: "a", label: "A" },
+      { value: "b", label: "B" },
+    ],
+  };
+
+  it("rejects an over-long question id naming the offending id", () => {
+    const longId = "x".repeat(101);
+    expect(() =>
+      normalizeQuestionnaire({
+        questions: [{ ...choiceQuestion, id: longId }],
+      }),
+    ).toThrow(`Question id "${longId}" exceeds 100 characters.`);
+  });
+
+  it("rejects over-long option values, labels, descriptions, and details", () => {
+    const longValue = "a".repeat(201);
+    const longLabel = "A".repeat(201);
+    const longDescription = "d".repeat(1001);
+    const longDetails = "d".repeat(2001);
+    expect(() =>
+      normalizeQuestionnaire({
+        questions: [
+          {
+            ...choiceQuestion,
+            options: [
+              { value: longValue, label: "A" },
+              { value: "b", label: "B" },
+            ],
+          },
+        ],
+      }),
+    ).toThrow(`choice question "c" option value "${longValue}" exceeds 200 characters.`);
+    expect(() =>
+      normalizeQuestionnaire({
+        questions: [
+          {
+            ...choiceQuestion,
+            options: [
+              { value: "a", label: longLabel },
+              { value: "b", label: "B" },
+            ],
+          },
+        ],
+      }),
+    ).toThrow(`choice question "c" option "a" label exceeds 200 characters.`);
+    expect(() =>
+      normalizeQuestionnaire({
+        questions: [
+          {
+            ...choiceQuestion,
+            options: [
+              { value: "a", label: "A", description: longDescription },
+              { value: "b", label: "B" },
+            ],
+          },
+        ],
+      }),
+    ).toThrow(`choice question "c" option "a" description exceeds 1000 characters.`);
+    expect(() =>
+      normalizeQuestionnaire({
+        questions: [
+          {
+            ...choiceQuestion,
+            options: [
+              { value: "a", label: "A", details: longDetails },
+              { value: "b", label: "B" },
+            ],
+          },
+        ],
+      }),
+    ).toThrow(`choice question "c" option "a" details exceeds 2000 characters.`);
+  });
+
+  it("rejects an over-long text recommendation naming the question", () => {
+    const longRecommendation = "r".repeat(201);
+    expect(() =>
+      normalizeQuestionnaire({
+        questions: [
+          {
+            type: "text",
+            id: "t",
+            header: "C",
+            prompt: "P?",
+            recommendation: longRecommendation,
+          },
+        ],
+      }),
+    ).toThrow(`Question "t" recommendation exceeds 200 characters.`);
+  });
+
+  it("rejects an over-long choice recommendation value naming the question", () => {
+    const longRecommendation = "r".repeat(201);
+    expect(() =>
+      normalizeQuestionnaire({
+        questions: [{ ...choiceQuestion, recommendation: longRecommendation }],
+      }),
+    ).toThrow(
+      `choice question "c" recommendation value "${longRecommendation}" exceeds 200 characters.`,
+    );
+  });
+
+  it("rejects an array recommendation on a text question", () => {
+    expect(() =>
+      normalizeQuestionnaire({
+        questions: [
+          { type: "text", id: "t", header: "C", prompt: "P?", recommendation: ["x"] },
+        ] as never,
+      }),
+    ).toThrow(/text question "t" recommendation must be a string, not an array/);
+  });
+
+  it("rejects a non-string recommendation on a text question", () => {
+    expect(() =>
+      normalizeQuestionnaire({
+        questions: [
+          { type: "text", id: "t", header: "C", prompt: "P?", recommendation: 7 },
+        ] as never,
+      }),
+    ).toThrow(/text question "t" recommendation must be a string, not a number/);
+    expect(() =>
+      normalizeQuestionnaire({
+        questions: [
+          { type: "text", id: "t", header: "C", prompt: "P?", recommendation: true },
+        ] as never,
+      }),
+    ).toThrow(/text question "t" recommendation must be a string, not a boolean/);
+  });
 });
 
 describe("normalizeDisplayText sanitization", () => {
+  it("strips C1 controls (raw and \\u-escaped)", () => {
+    expect(normalizeDisplayText("a\u0085b\u009Bc")).toBe("abc");
+    expect(normalizeDisplayText("a\\u0085b\\u009Bc")).toBe("abc");
+  });
+
+  it("strips bidi controls (raw and \\u-escaped)", () => {
+    expect(normalizeDisplayText("\u202Eevil\u202C")).toBe("evil");
+    expect(normalizeDisplayText("\\u202Eevil\\u202C")).toBe("evil");
+    expect(normalizeDisplayText("a\u2066b\u2069c")).toBe("abc");
+  });
+
   it("strips ESC characters and ANSI escape text from option labels", () => {
     const rawEscLabel = "Bad\u001b[31mLabel";
     const escapeTextLabel = "Bad\\u001b[31mLabel";
@@ -191,5 +503,245 @@ describe("normalizeDisplayText sanitization", () => {
       expect(choice.options[0]?.label).toContain("\uFFFD");
       expect(choice.options[0]?.label).toBe("A\uFFFD lone");
     }
+  });
+
+  it("does not decode \\u{...}-style escapes (informational — pins current behavior)", () => {
+    expect(normalizeDisplayText("\\u{1F600}")).toBe("\\u{1F600}");
+    expect(normalizeDisplayText("a\\u{41}b")).toBe("a\\u{41}b");
+  });
+});
+
+describe("question element and count validation", () => {
+  it("rejects null and non-object question elements with AskUserValidationError, not a raw TypeError", () => {
+    expect(() => normalizeQuestionnaire({ questions: [null] as never })).toThrow(
+      AskUserValidationError,
+    );
+    expect(() => normalizeQuestionnaire({ questions: ["not an object"] as never })).toThrow(
+      AskUserValidationError,
+    );
+  });
+
+  it("rejects zero questions", () => {
+    expect(() => normalizeQuestionnaire({ questions: [] })).toThrow(
+      /1-10 questions only \(got 0\)/,
+    );
+  });
+
+  it("rejects more than 10 questions", () => {
+    const questions = Array.from({ length: 11 }, (_, i) => ({
+      type: "text",
+      id: `t${i}`,
+      header: `H${i}`,
+      prompt: `P${i}?`,
+    }));
+    expect(() => normalizeQuestionnaire({ questions })).toThrow(/1-10 questions only \(got 11\)/);
+  });
+
+  it("rejects duplicate question ids", () => {
+    expect(() =>
+      normalizeQuestionnaire({
+        questions: [
+          { type: "text", id: "dup", header: "A", prompt: "P1?" },
+          { type: "text", id: "dup", header: "B", prompt: "P2?" },
+        ],
+      }),
+    ).toThrow(/Duplicate question id "dup"/);
+  });
+});
+
+describe("id, header, and prompt validation", () => {
+  it("rejects an empty id", () => {
+    expect(() =>
+      normalizeQuestionnaire({
+        questions: [{ type: "text", id: "", header: "H", prompt: "P?" }],
+      }),
+    ).toThrow(/Question id must be a non-empty string/);
+  });
+
+  it("rejects an empty header and an empty prompt", () => {
+    expect(() =>
+      normalizeQuestionnaire({
+        questions: [{ type: "text", id: "t", header: "", prompt: "P?" }],
+      }),
+    ).toThrow('Question "t" must include a non-empty header.');
+    expect(() =>
+      normalizeQuestionnaire({
+        questions: [{ type: "text", id: "t", header: "H", prompt: "" }],
+      }),
+    ).toThrow('Question "t" must include a non-empty prompt.');
+  });
+
+  it("trims whitespace around question ids", () => {
+    const q = normalizeQuestionnaire({
+      questions: [{ type: "text", id: "  t1  ", header: "H", prompt: "P?" }],
+    });
+    expect(q.questions[0]?.id).toBe("t1");
+  });
+
+  it("rejects a whitespace-only id", () => {
+    expect(() =>
+      normalizeQuestionnaire({
+        questions: [{ type: "text", id: "   ", header: "H", prompt: "P?" }],
+      }),
+    ).toThrow(/Question id must be a non-empty string/);
+  });
+});
+
+describe("option validation", () => {
+  it("rejects 13+ options", () => {
+    const options = Array.from({ length: 13 }, (_, i) => ({ value: `v${i}`, label: `L${i}` }));
+    expect(() =>
+      normalizeQuestionnaire({
+        questions: [{ type: "choice", id: "c", header: "C", prompt: "P?", options }],
+      }),
+    ).toThrow(/must have 2-12 options \(got 13\)/);
+  });
+
+  it("rejects an empty option value and an empty option label", () => {
+    expect(() =>
+      normalizeQuestionnaire({
+        questions: [
+          {
+            type: "choice",
+            id: "c",
+            header: "C",
+            prompt: "P?",
+            options: [
+              { value: "", label: "A" },
+              { value: "b", label: "B" },
+            ],
+          },
+        ],
+      }),
+    ).toThrow(/option with empty value or label/);
+    expect(() =>
+      normalizeQuestionnaire({
+        questions: [
+          {
+            type: "choice",
+            id: "c",
+            header: "C",
+            prompt: "P?",
+            options: [
+              { value: "a", label: "   " },
+              { value: "b", label: "B" },
+            ],
+          },
+        ],
+      }),
+    ).toThrow(/option with empty value or label/);
+  });
+});
+
+describe("recommendation shape validation", () => {
+  const choiceQuestion = {
+    type: "choice",
+    id: "c",
+    header: "C",
+    prompt: "P?",
+    options: [
+      { value: "a", label: "A" },
+      { value: "b", label: "B" },
+    ],
+  };
+
+  it("rejects a plain-string recommendation on a multi-select question", () => {
+    expect(() =>
+      normalizeQuestionnaire({
+        questions: [{ ...choiceQuestion, multi: true, recommendation: "a" }],
+      }),
+    ).toThrow(/multi-select question "c" recommendation must be an array, not a string/);
+  });
+
+  it("rejects duplicate recommendation values", () => {
+    expect(() =>
+      normalizeQuestionnaire({
+        questions: [{ ...choiceQuestion, recommendation: ["a", "a"] }],
+      }),
+    ).toThrow(/duplicate recommendation value "a"/);
+  });
+
+  it("rejects non-string recommendation entries (e.g. numbers) with a clear error", () => {
+    expect(() =>
+      normalizeQuestionnaire({
+        questions: [{ ...choiceQuestion, recommendation: [1] as never }],
+      }),
+    ).toThrow(/recommendation entries must be strings \(got number\)/);
+    expect(() =>
+      normalizeQuestionnaire({
+        questions: [{ ...choiceQuestion, recommendation: 7 as never }],
+      }),
+    ).toThrow(/recommendation entries must be strings \(got number\)/);
+  });
+});
+
+describe("text question with choice-only fields", () => {
+  it("rejects options and multi on a text question instead of silently dropping them", () => {
+    expect(() =>
+      normalizeQuestionnaire({
+        questions: [
+          {
+            type: "text",
+            id: "t",
+            header: "C",
+            prompt: "P?",
+            options: [
+              { value: "a", label: "A" },
+              { value: "b", label: "B" },
+            ],
+          },
+        ] as never,
+      }),
+    ).toThrow(/text question "t" cannot have options or multi/);
+    expect(() =>
+      normalizeQuestionnaire({
+        questions: [{ type: "text", id: "t", header: "C", prompt: "P?", multi: true }] as never,
+      }),
+    ).toThrow(/text question "t" cannot have options or multi/);
+  });
+});
+
+describe("title and intro omission", () => {
+  it("omits empty or whitespace-only title and intro", () => {
+    const q = normalizeQuestionnaire({
+      title: "   ",
+      intro: "  ",
+      questions: [{ type: "text", id: "t", header: "H", prompt: "P?" }],
+    });
+    expect("title" in q).toBe(false);
+    expect("intro" in q).toBe(false);
+  });
+});
+
+describe("formatSelectedOptions", () => {
+  it("joins selected option labels with '; '", () => {
+    expect(
+      formatSelectedOptions([
+        { label: "A", selected: true },
+        { label: "B", selected: false },
+        { label: "C", selected: true },
+      ]),
+    ).toBe("A; C");
+  });
+
+  it("appends a comment to a selected option", () => {
+    expect(formatSelectedOptions([{ label: "A", selected: true, comment: "keep" }])).toBe(
+      "A (comment: keep)",
+    );
+  });
+
+  it("ignores comments on unselected options", () => {
+    expect(
+      formatSelectedOptions([{ label: "A", selected: false, comment: "hmm" }]),
+    ).toBeUndefined();
+  });
+
+  it("returns undefined when nothing is selected", () => {
+    expect(
+      formatSelectedOptions([
+        { label: "A", selected: false },
+        { label: "B", selected: false },
+      ]),
+    ).toBeUndefined();
   });
 });

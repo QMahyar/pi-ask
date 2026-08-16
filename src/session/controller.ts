@@ -1,3 +1,4 @@
+import { normalizeDisplayText } from "../normalize.ts";
 import type {
   AskUserInteractionResult,
   AskUserOutcome,
@@ -99,14 +100,14 @@ export class AskUserController {
     return this.formComment;
   }
 
-  setComment(text: string): void {
-    const trimmed = text.trim();
+  setComment(text: string | null | undefined): void {
+    const trimmed = text == null ? undefined : normalizeDisplayText(text);
     this.formComment = trimmed || undefined;
   }
 
   setQuestionComment(questionId: string, text: string): void {
     const state = this.stateFor(questionId);
-    const trimmed = text.trim();
+    const trimmed = normalizeDisplayText(text);
     state.questionComment = trimmed || undefined;
   }
 
@@ -131,7 +132,7 @@ export class AskUserController {
     const option = state.options[optionIndex];
     if (!option) return;
 
-    const trimmed = comment?.trim();
+    const trimmed = comment === undefined ? undefined : normalizeDisplayText(comment);
     option.comment = trimmed || undefined;
   }
 
@@ -141,9 +142,11 @@ export class AskUserController {
     if (this.terminal) return;
     const state = this.stateFor(question.id);
     if (state.kind !== "choice") return;
+    const option = state.options[optionIndex];
+    if (!option) return;
 
     for (const opt of state.options) {
-      opt.selected = opt === state.options[optionIndex];
+      opt.selected = opt === option;
     }
     state.markedUnanswered = false;
   }
@@ -172,7 +175,7 @@ export class AskUserController {
     if (this.terminal) return;
     const state = this.stateFor(questionId);
     if (state.kind !== "text") return;
-    state.value = value.trim();
+    state.value = normalizeDisplayText(value);
     if (state.value.length > 0) state.markedUnanswered = false;
   }
 

@@ -87,7 +87,6 @@ export interface AskUserErrorDetails {
 export type AskUserToolDetails = AskUserDetails | AskUserErrorDetails;
 
 // ── Internal interaction result: UI cancel/abort are NOT persisted ──
-
 export type AskUserInteractionResult = AskUserInteractionCancel | AskUserInteractionAbort;
 
 export interface AskUserInteractionCancel {
@@ -110,12 +109,14 @@ export const ASK_USER_LIMITS = {
   maxTitleLength: 120,
   maxIntroLength: 4000,
   maxPlaceholderLength: 200,
+  maxQuestionIdLength: 100,
+  maxOptionLabelLength: 200,
+  maxOptionDescriptionLength: 1000,
+  maxOptionDetailsLength: 2000,
+  maxOptionValueLength: 200,
+  maxRecommendationLength: 200,
 } as const;
 
-// ── Guards ─────────────────────────────────────────────────────────
-
-export function isErrorDetails(details: unknown): details is AskUserErrorDetails {
-  return (
-    typeof details === "object" && details !== null && "kind" in details && details.kind === "error"
-  );
-}
+// Note: AskUserErrorDetails above is exported via the public API (src/api.ts) but
+// nothing produces error-shaped details at runtime; pi marks errors via
+// context.isError on the renderer, so the render path never special-cases it.

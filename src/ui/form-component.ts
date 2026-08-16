@@ -12,6 +12,12 @@ import type { NormalizedChoiceQuestion } from "../types.ts";
 import { renderFormFrame } from "./form-render.ts";
 import { defaultChoiceRowIndex, type FormMode, focusForMode } from "./form-view.ts";
 import type { FormArgs } from "./types.ts";
+import {
+  decodeKeyForCompare,
+  FORM_LIST_PAGE_SIZE,
+  formViewportHeight,
+  nextFocusIndex,
+} from "./ui-logic.ts";
 
 type QuestionnaireMode = "choice" | "text" | "review";
 
@@ -44,10 +50,13 @@ export class AskUserForm implements Component, Focusable {
   private closed: boolean = false;
   private cachedWidth: number | undefined;
   private cachedEditorFocused: boolean | undefined;
+  private cachedRows: number | undefined;
   private cachedLines: string[] | undefined;
   private commentEdit: CommentEdit | undefined;
   private returnToReviewAfterEdit: boolean = false;
   private pendingEsc: boolean = false;
+  private pendingEscTimer: ReturnType<typeof setTimeout> | undefined;
+  private scrollOffset = 0;
   private readonly onAbort: () => void;
 
   constructor(private readonly args: FormArgs) {
@@ -76,8 +85,10 @@ export class AskUserForm implements Component, Focusable {
     const editorFocused = this.focused && focus === "editor";
     if (isFocusable(this.editor)) this.editor.focused = editorFocused;
 
+    const rows = this.args.tui.terminal.rows;
     if (
       this.cachedWidth === width &&
+      this.cachedRows === rows &&
       this.cachedEditorFocused === editorFocused &&
       this.cachedLines
     ) {
@@ -85,8 +96,9 @@ export class AskUserForm implements Component, Focusable {
     }
 
     this.cachedWidth = width;
+    this.cachedRows = rows;
     this.cachedEditorFocused = editorFocused;
-    this.cachedLines = renderFormFrame({
+    const rendered = renderFormFrame({
       width,
       theme: this.args.theme,
       controller: this.args.controller,
@@ -98,7 +110,12 @@ export class AskUserForm implements Component, Focusable {
       detailsText: this.currentDetailsText(),
       editorLabel: this.currentEditorLabel(),
       editorContext: this.commentEdit?.context,
+      scrollOffset: this.scrollOffset,
+      viewportHeight: formViewportHeight(rows),
+      editorHandlesEscape: this.editorHandlesEscape,
     });
+    this.scrollOffset = rendered.scrollOffset;
+    this.cachedLines = rendered.lines;
     return this.cachedLines;
   }
 
@@ -118,18 +135,29 @@ export class AskUserForm implements Component, Focusable {
       return;
     }
 
+    if (
+      (this.baseMode === "review" || this.baseMode === "choice") &&
+      matchesKey(data, Key.ctrl("c"))
+    ) {
+      this.args.controller.cancel();
+      this.finish();
+      return;
+    }
+
+    const decoded = decodeKeyForCompare(data);
+
     if (this.baseMode === "review") {
-      this.handleReviewInput(data);
+      this.handleReviewInput(data, decoded);
       return;
     }
 
     const question = this.args.controller.currentQuestion;
     if (question.type === "text") {
-      this.handleTextKey(data);
+      this.handleTextKey(data, decoded);
       return;
     }
 
-    this.handleChoiceKey(data);
+    this.handleChoiceKey(data, decoded);
   }
 
   private handleEscapeKey(data: string): boolean {
@@ -149,12 +177,11 @@ export class AskUserForm implements Component, Focusable {
 
     if (this.baseMode === "text") {
       this.pendingEsc = true;
-      setTimeout(() => {
-        if (this.pendingEsc) {
-          this.pendingEsc = false;
-          this.args.controller.cancel();
-          this.finish();
-        }
+      this.pendingEscTimer = setTimeout(() => {
+        if (this.closed || !this.pendingEsc) return;
+        this.clearPendingEsc();
+        this.args.controller.cancel();
+        this.finish();
       }, 80);
       return true;
     }
@@ -173,6 +200,14 @@ export class AskUserForm implements Component, Focusable {
     if (this.baseMode === "text") {
       this.args.controller.cancel();
       this.finish();
+    }
+  }
+
+  private clearPendingEsc(): void {
+    this.pendingEsc = false;
+    if (this.pendingEscTimer !== undefined) {
+      clearTimeout(this.pendingEscTimer);
+      this.pendingEscTimer = undefined;
     }
   }
 
@@ -207,11 +242,13 @@ export class AskUserForm implements Component, Focusable {
   }
 
   private navigateForward(): void {
+    this.clearPendingEsc();
     this.syncTextAnswerFromEditor();
     this.goNext();
   }
 
   private navigateBackward(): void {
+    this.clearPendingEsc();
     this.syncTextAnswerFromEditor();
     this.saveCurrentChoiceFocus();
     this.returnToReviewAfterEdit = false;
@@ -231,12 +268,13 @@ export class AskUserForm implements Component, Focusable {
 
   dispose(): void {
     this.closed = true;
+    this.clearPendingEsc();
     this.args.signal?.removeEventListener("abort", this.onAbort);
   }
 
   // ── Review screen ───────────────────────────────────────────────
 
-  private handleReviewInput(data: string): void {
+  private handleReviewInput(data: string, decoded: string): void {
     const questionCount = this.args.controller.questionnaire.questions.length;
     const submitIndex = questionCount;
 
@@ -261,14 +299,46 @@ export class AskUserForm implements Component, Focusable {
       return;
     }
 
-    if (data === "c") {
+    if (matchesKey(data, Key.pageUp)) {
+      this.reviewFocusIndex = nextFocusIndex(
+        this.reviewFocusIndex,
+        -FORM_LIST_PAGE_SIZE,
+        submitIndex,
+      );
+      this.refresh();
+      return;
+    }
+
+    if (matchesKey(data, Key.pageDown)) {
+      this.reviewFocusIndex = nextFocusIndex(
+        this.reviewFocusIndex,
+        FORM_LIST_PAGE_SIZE,
+        submitIndex,
+      );
+      this.refresh();
+      return;
+    }
+
+    if (matchesKey(data, Key.home)) {
+      this.reviewFocusIndex = 0;
+      this.refresh();
+      return;
+    }
+
+    if (matchesKey(data, Key.end)) {
+      this.reviewFocusIndex = submitIndex;
+      this.refresh();
+      return;
+    }
+
+    if (decoded === "c") {
       this.openFormCommentEditor();
     }
   }
 
   // ── Choice screen ───────────────────────────────────────────────
 
-  private handleChoiceKey(data: string): void {
+  private handleChoiceKey(data: string, decoded: string): void {
     const question = this.args.controller.currentQuestion;
     if (question.type !== "choice") return;
 
@@ -280,6 +350,38 @@ export class AskUserForm implements Component, Focusable {
 
     if (matchesKey(data, Key.down)) {
       this.choiceFocusIndex = Math.min(question.options.length - 1, this.choiceFocusIndex + 1);
+      this.refresh();
+      return;
+    }
+
+    if (matchesKey(data, Key.pageUp)) {
+      this.choiceFocusIndex = nextFocusIndex(
+        this.choiceFocusIndex,
+        -FORM_LIST_PAGE_SIZE,
+        question.options.length - 1,
+      );
+      this.refresh();
+      return;
+    }
+
+    if (matchesKey(data, Key.pageDown)) {
+      this.choiceFocusIndex = nextFocusIndex(
+        this.choiceFocusIndex,
+        FORM_LIST_PAGE_SIZE,
+        question.options.length - 1,
+      );
+      this.refresh();
+      return;
+    }
+
+    if (matchesKey(data, Key.home)) {
+      this.choiceFocusIndex = 0;
+      this.refresh();
+      return;
+    }
+
+    if (matchesKey(data, Key.end)) {
+      this.choiceFocusIndex = question.options.length - 1;
       this.refresh();
       return;
     }
@@ -302,34 +404,34 @@ export class AskUserForm implements Component, Focusable {
       return;
     }
 
-    if (data === "u") {
+    if (decoded === "u") {
       this.args.controller.markCurrentQuestionUnanswered();
       this.refresh();
       return;
     }
 
-    if (data === "c") {
+    if (decoded === "c") {
       this.openQuestionCommentEditor(question.id);
       return;
     }
 
-    if (data === "n") {
+    if (decoded === "n") {
       this.openOptionCommentEditor(question, this.choiceFocusIndex);
     }
   }
 
   // ── Text screen ─────────────────────────────────────────────────
 
-  private handleTextKey(data: string): void {
+  private handleTextKey(data: string, decoded: string): void {
     if (this.pendingEsc) {
-      this.pendingEsc = false;
-      if (data === "u") {
+      this.clearPendingEsc();
+      if (decoded === "u") {
         this.args.controller.markCurrentQuestionUnanswered();
         this.setEditorText("");
         this.refresh();
         return;
       }
-      if (data === "c") {
+      if (decoded === "c") {
         this.syncTextAnswerFromEditor();
         this.openQuestionCommentEditor(this.args.controller.currentQuestion.id);
         return;
@@ -439,6 +541,7 @@ export class AskUserForm implements Component, Focusable {
     switch (edit.kind) {
       case "form":
         this.baseMode = "review";
+        this.scrollOffset = 0;
         this.setEditorText("");
         return;
       case "question":
@@ -459,6 +562,7 @@ export class AskUserForm implements Component, Focusable {
       this.returnToReviewAfterEdit = false;
       this.baseMode = "review";
       this.reviewFocusIndex = this.args.controller.questionnaire.questions.length;
+      this.scrollOffset = 0;
       this.setEditorText("");
       this.refresh();
       return;
@@ -470,6 +574,7 @@ export class AskUserForm implements Component, Focusable {
       this.baseMode = "review";
       // Focus the Submit row by default so Enter submits immediately.
       this.reviewFocusIndex = this.args.controller.questionnaire.questions.length;
+      this.scrollOffset = 0;
       this.refresh();
       return;
     }
@@ -497,11 +602,13 @@ export class AskUserForm implements Component, Focusable {
 
     if (question.type === "text") {
       this.baseMode = "text";
+      this.scrollOffset = 0;
       this.setEditorText(this.args.controller.getTextAnswer(question.id));
       return;
     }
 
     this.baseMode = "choice";
+    this.scrollOffset = 0;
     this.setEditorText("");
     this.choiceFocusIndex =
       this.choiceFocusByQuestionId.get(question.id) ??

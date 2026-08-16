@@ -102,6 +102,16 @@ describe("AskUserController", () => {
       controller.selectChoiceOption(c, 1);
       expect(controller.isQuestionMarkedUnanswered("c1")).toBe(false);
     });
+
+    it("out-of-bounds index is a no-op and does not deselect the current selection", () => {
+      const controller = makeController([choice({ recommendation: "b" })]);
+      const c = choiceQuestion(controller);
+      expect(controller.isOptionSelected("c1", "b")).toBe(true);
+      controller.selectChoiceOption(c, 99);
+      expect(controller.isOptionSelected("c1", "b")).toBe(true);
+      controller.selectChoiceOption(c, -1);
+      expect(controller.isOptionSelected("c1", "b")).toBe(true);
+    });
   });
 
   describe("toggleChoiceOption", () => {
@@ -155,6 +165,12 @@ describe("AskUserController", () => {
       expect(controller.getTextAnswer("t1")).toBe("");
       expect(controller.isQuestionMarkedUnanswered("t1")).toBe(true);
     });
+
+    it("sanitizes control and bidi characters out of answers", () => {
+      const controller = makeController([text()]);
+      controller.setTextAnswer("t1", "\u001b[31mred\u202Eevil");
+      expect(controller.getTextAnswer("t1")).toBe("[31mredevil");
+    });
   });
 
   describe("markCurrentQuestionUnanswered", () => {
@@ -191,6 +207,14 @@ describe("AskUserController", () => {
       expect(controller.comment).toBeUndefined();
     });
 
+    it("tolerates null and undefined comments instead of throwing", () => {
+      const controller = makeController([choice()]);
+      controller.setComment(null);
+      expect(controller.comment).toBeUndefined();
+      controller.setComment(undefined);
+      expect(controller.comment).toBeUndefined();
+    });
+
     it("trims question comments and stores undefined for blank", () => {
       const controller = makeController([choice(), text()]);
       controller.setQuestionComment("c1", "  hi  ");
@@ -215,6 +239,17 @@ describe("AskUserController", () => {
       expect(controller.getOptionComment("c1", "a")).toBeUndefined();
       controller.setChoiceOptionComment(c, 99, undefined);
       expect(controller.getOptionComment("c1", "a")).toBeUndefined();
+    });
+
+    it("sanitizes control and bidi characters out of comments", () => {
+      const controller = makeController([choice()]);
+      const c = choiceQuestion(controller);
+      controller.setComment("\u202Ehi\u202C");
+      expect(controller.comment).toBe("hi");
+      controller.setQuestionComment("c1", "\u001b[1mbold\u001b[0m");
+      expect(controller.getQuestionComment("c1")).toBe("[1mbold[0m");
+      controller.setChoiceOptionComment(c, 1, "\u0085weird\u009B");
+      expect(controller.getOptionComment("c1", "b")).toBe("weird");
     });
   });
 
@@ -337,6 +372,84 @@ describe("AskUserController", () => {
         kind: "text",
         answered: true,
         value: "yes",
+      });
+    });
+  });
+
+  describe("kind-mismatch no-ops", () => {
+    it("isOptionSelected and getOptionComment on a text question return false/undefined", () => {
+      const controller = makeController([text()]);
+      expect(controller.isOptionSelected("t1", "a")).toBe(false);
+      expect(controller.getOptionComment("t1", "a")).toBeUndefined();
+    });
+
+    it("setTextAnswer on a choice question is a no-op", () => {
+      const controller = makeController([choice()]);
+      controller.setTextAnswer("c1", "x");
+      expect(controller.getTextAnswer("c1")).toBe("");
+    });
+  });
+
+  describe("multi-select deselect-all", () => {
+    it("produces needs_discussion when every recommended option is toggled off", () => {
+      const controller = makeController([choice({ multi: true, recommendation: ["a", "b"] })]);
+      const c = choiceQuestion(controller);
+      controller.toggleChoiceOption(c, 0);
+      controller.toggleChoiceOption(c, 1);
+      const outcome = controller.outcome();
+      expect(outcome.outcome).toBe("needs_discussion");
+      expect(outcome.responses[0]?.answer).toEqual({
+        kind: "choice",
+        answered: false,
+        options: [],
+      });
+    });
+  });
+
+  describe("question comments in the outcome", () => {
+    it("includes question comments for choice and text responses", () => {
+      const controller = makeController([choice({ recommendation: "a" }), text()]);
+      controller.setTextAnswer("t1", "ok");
+      controller.setQuestionComment("c1", "think about it");
+      controller.setQuestionComment("t1", "scratch that");
+      const outcome = controller.outcome();
+      expect(outcome.outcome).toBe("submitted");
+      expect(outcome.responses[0]?.questionComment).toBe("think about it");
+      expect(outcome.responses[1]?.questionComment).toBe("scratch that");
+    });
+  });
+
+  describe("getters", () => {
+    it("currentQuestion tracks the navigation position", () => {
+      const controller = makeController([choice(), text()]);
+      expect(controller.currentQuestion.id).toBe("c1");
+      controller.goNext();
+      expect(controller.currentQuestion.id).toBe("t1");
+    });
+
+    it("isTerminal is false initially and true after cancel or abort", () => {
+      const cancelled = makeController([choice()]);
+      expect(cancelled.isTerminal).toBe(false);
+      cancelled.cancel();
+      expect(cancelled.isTerminal).toBe(true);
+
+      const aborted = makeController([choice()]);
+      aborted.abort();
+      expect(aborted.isTerminal).toBe(true);
+    });
+  });
+
+  describe("selected + comment serialization", () => {
+    it("includes a selected option with its comment in the response", () => {
+      const controller = makeController([choice({ recommendation: "b" })]);
+      const c = choiceQuestion(controller);
+      controller.setChoiceOptionComment(c, 1, "with note");
+      const outcome = controller.outcome();
+      expect(outcome.outcome).toBe("submitted");
+      expect(outcome.responses[0]?.answer).toEqual({
+        kind: "choice",
+        answered: true,
+        options: [{ value: "b", label: "B", selected: true, comment: "with note" }],
       });
     });
   });

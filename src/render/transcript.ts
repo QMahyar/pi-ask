@@ -1,5 +1,6 @@
 import { type AgentToolResult, keyText, type Theme } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
+import { normalizeDisplayText } from "../normalize.ts";
 import type { AskUserParams } from "../schema.ts";
 import { ASK_USER_TOOL_NAME } from "../tool/guidance.ts";
 import type {
@@ -9,8 +10,8 @@ import type {
   AskUserToolDetails,
   NormalizedQuestion,
 } from "../types.ts";
-import { isErrorDetails } from "../types.ts";
 import { choiceMarker } from "../ui/form-render-primitives.ts";
+import { formatSelectedOptions } from "./answer-format.ts";
 
 const COLLAPSED_ANSWER_LIMIT = 2;
 const DEFAULT_REVIEW_KEY = "Ctrl+O";
@@ -24,9 +25,20 @@ type AskUserRenderContext = {
   isError?: boolean;
 };
 
-export function renderAskUserCall(args: AskUserParams, theme: Theme): Text {
-  const title = args.title?.trim();
-  const headers = args.questions.map((question) => question.header.trim()).filter(Boolean);
+export function renderAskUserCall(
+  args: AskUserParams,
+  theme: Theme,
+  context: { argsComplete?: boolean } = {},
+): Text {
+  // Guard against malformed/partial args: while the call streams in, pi marks
+  // argsComplete: false (see ToolRenderContext), and older/resumed sessions
+  // may carry args that never validated against the schema.
+  const ready = context.argsComplete !== false;
+  const questions = Array.isArray(args?.questions) ? args.questions : [];
+  const title = ready ? normalizeDisplayText(args?.title ?? "") : "";
+  const headers = ready
+    ? questions.map((question) => normalizeDisplayText(question?.header ?? "")).filter(Boolean)
+    : [];
   const label = title || `${headers.length} question${headers.length === 1 ? "" : "s"}`;
   const suffix = title && headers.length > 0 ? ` (${headers.join(", ")})` : headers.join(", ");
   const text = `${theme.fg("toolTitle", theme.bold(`${ASK_USER_TOOL_NAME} `))}${theme.fg("muted", label)}${suffix ? theme.fg("dim", ` ${suffix}`) : ""}`;
@@ -39,7 +51,7 @@ export function renderAskUserResult(
   options: AskUserRenderOptions = {},
   context: AskUserRenderContext = {},
 ): Text {
-  if (context.isError || isErrorDetails(result.details)) {
+  if (context.isError) {
     return new Text(theme.fg("error", formatErrorResult(result)), 0, 0);
   }
 
@@ -74,7 +86,6 @@ function isAskUserDetails(details: unknown): details is AskUserDetails {
 function formatErrorResult(
   result: Pick<AgentToolResult<AskUserToolDetails>, "content" | "details">,
 ): string {
-  if (isErrorDetails(result.details)) return result.details.message;
   return firstTextContent(result) ?? "ask_user failed.";
 }
 
@@ -149,11 +160,7 @@ function formatAnswerLine(resp: AskUserResponse): string | undefined {
   if (!resp.answer.answered) return undefined;
 
   if (resp.answer.kind === "choice") {
-    const selected = resp.answer.options.filter((o) => o.selected);
-    if (selected.length === 0) return undefined;
-    return selected
-      .map((o) => (o.comment ? `${o.label} (comment: ${o.comment})` : o.label))
-      .join("; ");
+    return formatSelectedOptions(resp.answer.options);
   }
 
   if (resp.answer.kind === "text" && resp.answer.value) {
