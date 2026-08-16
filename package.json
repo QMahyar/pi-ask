@@ -1,6 +1,6 @@
 {
   "name": "@qmahyar/pi-ask",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Structured choice and text forms for agent-user decisions. ask_user extension for the pi coding agent.",
   "license": "MIT",
   "author": "QMahyar",
@@ -30,14 +30,10 @@
   ],
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*",
-    "@earendil-works/pi-tui": "*",
     "typebox": "*"
   },
   "peerDependenciesMeta": {
     "@earendil-works/pi-coding-agent": {
-      "optional": true
-    },
-    "@earendil-works/pi-tui": {
       "optional": true
     },
     "typebox": {
