@@ -14,6 +14,7 @@ import type {
   NormalizedQuestion,
   NormalizedQuestionnaire,
 } from "../types.ts";
+import { formatSelectedOptions } from "./answer-format.ts";
 
 export type AskUserToolResult = AgentToolResult<AskUserToolDetails>;
 
@@ -84,7 +85,13 @@ function formatUnansweredSummary(
 ): string[] {
   const unanswered = responses
     .filter((response) => !response.answer.answered)
-    .map((response) => questionHeader(questions, response.questionId));
+    .map((response) => {
+      const question = questions.find((q) => q.id === response.questionId);
+      if (!question) return response.questionId;
+      // Identify unanswered questions by their stable id, with the human
+      // header alongside for context (headers are unique per form).
+      return question.id ? `${question.id}: ${question.header}` : question.header;
+    });
 
   return unanswered.length > 0 ? [`Unanswered: ${unanswered.join(", ")}`] : [];
 }
@@ -112,12 +119,8 @@ function formatAnswerSummaryLine(header: string, response: AskUserResponse): str
   if (!response.answer.answered) return undefined;
 
   if (response.answer.kind === "choice") {
-    const selected = response.answer.options
-      .filter((option) => option.selected)
-      .map((option) =>
-        option.comment ? `${option.label} (comment: ${option.comment})` : option.label,
-      );
-    return selected.length > 0 ? `${header}: ${selected.join("; ")}` : undefined;
+    const selected = formatSelectedOptions(response.answer.options);
+    return selected ? `${header}: ${selected}` : undefined;
   }
 
   if (response.answer.kind === "text" && response.answer.value) {
