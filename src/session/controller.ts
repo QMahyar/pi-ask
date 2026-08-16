@@ -100,8 +100,8 @@ export class AskUserController {
     return this.formComment;
   }
 
-  setComment(text: string): void {
-    const trimmed = normalizeDisplayText(text);
+  setComment(text: string | null | undefined): void {
+    const trimmed = text == null ? undefined : normalizeDisplayText(text);
     this.formComment = trimmed || undefined;
   }
 
