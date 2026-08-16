@@ -1,7 +1,7 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth } from "@earendil-works/pi-tui";
 import type { AskUserResponse, NormalizedQuestion } from "../types.ts";
-import type { RenderFormFrameArgs } from "./form-render.ts";
+import type { FrameBody, RenderFormFrameArgs } from "./form-render.ts";
 import {
   choiceMarker,
   pushWrappedWithPrefix,
@@ -10,7 +10,7 @@ import {
   wrapLines,
 } from "./form-render-primitives.ts";
 
-export function renderReviewScreen(args: RenderFormFrameArgs): string[] {
+export function renderReviewScreen(args: RenderFormFrameArgs): FrameBody {
   const lines: string[] = [];
   const outcome = args.controller.outcome();
   const questionCount = args.controller.questionnaire.questions.length;
@@ -22,10 +22,17 @@ export function renderReviewScreen(args: RenderFormFrameArgs): string[] {
   );
   lines.push("");
 
+  let focusStart: number | undefined;
+  let focusEnd: number | undefined;
   for (let i = 0; i < outcome.responses.length; i += 1) {
     const resp = outcome.responses[i];
     const question = args.controller.questionnaire.questions[i];
+    const start = lines.length;
     lines.push(...renderReviewQuestionCard(args, question, resp, i === args.reviewFocusIndex));
+    if (i === args.reviewFocusIndex) {
+      focusStart = start;
+      focusEnd = lines.length;
+    }
   }
 
   if (outcome.comment) {
@@ -34,9 +41,14 @@ export function renderReviewScreen(args: RenderFormFrameArgs): string[] {
   }
 
   lines.push("");
+  const submitStart = lines.length;
   lines.push(...renderSubmitCard(args, args.reviewFocusIndex === submitIndex));
+  if (args.reviewFocusIndex === submitIndex) {
+    focusStart = submitStart;
+    focusEnd = lines.length;
+  }
 
-  return lines;
+  return { lines, focusStart, focusEnd };
 }
 
 function renderReviewQuestionCard(

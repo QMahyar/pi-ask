@@ -13,6 +13,7 @@ import {
 } from "./form-render-primitives.ts";
 import { renderReviewScreen } from "./form-review-render.ts";
 import type { FocusTarget, FormMode } from "./form-view.ts";
+import { revealScroll } from "./ui-logic.ts";
 
 export interface RenderFormFrameArgs {
   width: number;
@@ -26,49 +27,144 @@ export interface RenderFormFrameArgs {
   detailsText?: string;
   editorLabel?: string;
   editorContext?: string;
+  /** Line-based scroll offset into the body; only used for choice/review modes. */
+  scrollOffset?: number;
+  /** Available terminal rows for the whole frame (borders included). */
+  viewportHeight?: number;
+  /** The custom editor handles Escape itself, so the footer hint must not promise cancel. */
+  editorHandlesEscape?: boolean;
 }
 
-export function renderFormFrame(args: RenderFormFrameArgs): string[] {
+export interface FrameBody {
+  lines: string[];
+  /** Line range of the focused item, relative to `lines`. */
+  focusStart?: number;
+  focusEnd?: number;
+}
+
+interface FrameContent extends FrameBody {
+  /** Index into `lines` where the scrollable body begins. */
+  bodyStart: number;
+  bodyLength: number;
+}
+
+export function renderFormFrame(args: RenderFormFrameArgs): {
+  lines: string[];
+  scrollOffset: number;
+} {
   const width = safeWidth(args.width);
   if (width < 8) {
-    return renderFrameContent({ ...args, width }).map((line) => truncateToWidth(line, width));
+    const frame = renderFrameContent({ ...args, width });
+    return { lines: frame.lines.map((line) => truncateToWidth(line, width)), scrollOffset: 0 };
   }
 
   const innerWidth = Math.max(1, width - 4);
-  const content = renderFrameContent({ ...args, width: innerWidth });
+  const frame = renderFrameContent({ ...args, width: innerWidth });
   const border = args.theme.fg("borderAccent", "│");
   const top = args.theme.fg("borderAccent", `╭${"─".repeat(width - 2)}╮`);
   const bottom = args.theme.fg("borderAccent", `╰${"─".repeat(width - 2)}╯`);
 
-  return [
-    top,
-    ...content.map((line) => `${border} ${padRight(line, innerWidth)} ${border}`),
-    bottom,
-  ].map((line) => truncateToWidth(line, width));
+  let content = frame.lines;
+  let scrollOffset = 0;
+  if (isScrollableMode(args.mode) && args.viewportHeight !== undefined) {
+    const clipped = clipFrameBody(args, frame, args.viewportHeight - 2);
+    if (clipped) {
+      content = clipped.lines;
+      scrollOffset = clipped.scrollOffset;
+    }
+  }
+
+  return {
+    lines: [
+      top,
+      ...content.map((line) => `${border} ${padRight(line, innerWidth)} ${border}`),
+      bottom,
+    ].map((line) => truncateToWidth(line, width)),
+    scrollOffset,
+  };
 }
 
-function renderFrameContent(args: RenderFormFrameArgs): string[] {
+/** Clip the body of a scrollable frame to the viewport, revealing the focus. */
+function clipFrameBody(
+  args: RenderFormFrameArgs,
+  frame: FrameContent,
+  viewport: number,
+): { lines: string[]; scrollOffset: number } | undefined {
+  const headerLines = frame.bodyStart;
+  const footerLines = frame.lines.length - frame.bodyStart - frame.bodyLength;
+  const bodyViewport = viewport - headerLines - footerLines;
+  if (bodyViewport < 1 || frame.lines.length <= viewport) return undefined;
+
+  const body = frame.lines.slice(frame.bodyStart, frame.bodyStart + frame.bodyLength);
+  // Indicators consume up to two viewport lines; reveal the focus within the
+  // content area that remains, so the focused card is never clipped itself.
+  const revealViewport = Math.max(1, bodyViewport - 2);
+  const scrollOffset = revealScroll(
+    args.scrollOffset ?? 0,
+    frame.focusStart ?? 0,
+    frame.focusEnd ?? 0,
+    body.length,
+    revealViewport,
+  );
+
+  const hiddenAbove = scrollOffset > 0;
+  let visible = body.slice(
+    scrollOffset,
+    scrollOffset + Math.max(0, bodyViewport - (hiddenAbove ? 1 : 0)),
+  );
+  let hiddenBelow = body.length - scrollOffset - visible.length;
+  if (hiddenBelow > 0 && visible.length > 0) {
+    visible = visible.slice(0, visible.length - 1);
+    hiddenBelow = body.length - scrollOffset - visible.length;
+  }
+
+  const middle: string[] = [];
+  if (hiddenAbove) middle.push(args.theme.fg("dim", `↑ ${scrollOffset} hidden`));
+  middle.push(...visible);
+  if (hiddenBelow > 0) middle.push(args.theme.fg("dim", `▾ ${hiddenBelow} more`));
+
+  return {
+    lines: [
+      ...frame.lines.slice(0, frame.bodyStart),
+      ...middle,
+      ...frame.lines.slice(frame.bodyStart + frame.bodyLength),
+    ],
+    scrollOffset,
+  };
+}
+
+function isScrollableMode(mode: FormMode): boolean {
+  return mode === "choice" || mode === "review";
+}
+
+function renderFrameContent(args: RenderFormFrameArgs): FrameContent {
   const width = safeWidth(args.width);
   const lines: string[] = [];
   lines.push(...renderHeader(args));
   lines.push("");
+  const bodyStart = lines.length;
 
+  let body: FrameBody;
   if (args.mode === "review") {
-    lines.push(...renderReviewScreen(args));
+    body = renderReviewScreen(args);
   } else if (isEditorMode(args.mode)) {
-    lines.push(...renderEditorScreen(args));
+    body = { lines: renderEditorScreen(args) };
   } else {
     const question = args.controller.currentQuestion;
-    if (question.type === "text") {
-      lines.push(...renderTextScreen(args));
-    } else {
-      lines.push(...renderChoiceScreen(args));
-    }
+    body = question.type === "text" ? { lines: renderTextScreen(args) } : renderChoiceScreen(args);
   }
+  lines.push(...body.lines);
 
   lines.push("");
   lines.push(...wrapTextWithAnsi(args.theme.fg("dim", renderFooter(args)), width));
-  return lines.map((line) => truncateToWidth(line, width));
+
+  return {
+    lines: lines.map((line) => truncateToWidth(line, width)),
+    bodyStart,
+    bodyLength: body.lines.length,
+    focusStart: body.focusStart,
+    focusEnd: body.focusEnd,
+  };
 }
 
 function renderHeader(args: RenderFormFrameArgs): string[] {
@@ -118,11 +214,11 @@ function renderProgressLine(args: RenderFormFrameArgs): string {
   return truncateToWidth(`${args.theme.fg("dim", label)}  ${segments}`, args.width);
 }
 
-function renderChoiceScreen(args: RenderFormFrameArgs): string[] {
+function renderChoiceScreen(args: RenderFormFrameArgs): FrameBody {
   const lines: string[] = [];
   const question = args.controller.currentQuestion;
 
-  if (question.type !== "choice") return lines;
+  if (question.type !== "choice") return { lines };
 
   lines.push(...renderPrompt(question.prompt, args.width));
   if (args.controller.isQuestionMarkedUnanswered(question.id)) {
@@ -132,12 +228,18 @@ function renderChoiceScreen(args: RenderFormFrameArgs): string[] {
   lines.push("");
 
   if (args.detailsText && args.width >= 80) {
-    lines.push(...renderChoiceWithDetails(args, question));
-    return lines;
+    return renderChoiceWithDetails(args, question);
   }
 
+  let focusStart: number | undefined;
+  let focusEnd: number | undefined;
   for (let i = 0; i < question.options.length; i += 1) {
+    const start = lines.length;
     lines.push(...renderChoiceOptionLines(args, question, i, args.width));
+    if (i === args.choiceFocusIndex) {
+      focusStart = start;
+      focusEnd = lines.length;
+    }
   }
 
   if (args.detailsText) {
@@ -145,13 +247,13 @@ function renderChoiceScreen(args: RenderFormFrameArgs): string[] {
     lines.push(...renderDetailsCard(args.theme, args.detailsText, args.width));
   }
 
-  return lines;
+  return { lines, focusStart, focusEnd };
 }
 
 function renderChoiceWithDetails(
   args: RenderFormFrameArgs,
   question: NormalizedChoiceQuestion,
-): string[] {
+): FrameBody {
   const gap = 2;
   const divider = args.theme.fg("borderMuted", "│");
   const dividerWidth = 1;
@@ -164,8 +266,15 @@ function renderChoiceWithDetails(
   const leftWidth = Math.max(1, args.width - gap - dividerWidth - gap - rightWidth);
 
   const optionLines: string[] = [];
+  let focusStart: number | undefined;
+  let focusEnd: number | undefined;
   for (let i = 0; i < question.options.length; i += 1) {
+    const start = optionLines.length;
     optionLines.push(...renderChoiceOptionLines(args, question, i, leftWidth));
+    if (i === args.choiceFocusIndex) {
+      focusStart = start;
+      focusEnd = optionLines.length;
+    }
   }
 
   const detailsLines = renderDetailsCard(args.theme, args.detailsText ?? "", rightWidth);
@@ -179,7 +288,7 @@ function renderChoiceWithDetails(
     merged.push(truncateToWidth(mergedLine, args.width));
   }
 
-  return merged;
+  return { lines: merged, focusStart, focusEnd };
 }
 
 function renderChoiceOptionLines(
@@ -264,7 +373,8 @@ function renderFooter(args: RenderFormFrameArgs): string {
   const question = args.controller.currentQuestion;
 
   if (question.type === "text") {
-    return "Keys: Enter submit · Alt+C question comment · Alt+U unanswered · Tab next · Shift+Tab back · Esc cancel";
+    const escapeHint = args.editorHandlesEscape ? "Esc editor" : "Esc cancel";
+    return `Keys: Enter submit · Alt+C question comment · Alt+U unanswered · Tab next · Shift+Tab back · ${escapeHint}`;
   }
 
   if (question.multi) {
