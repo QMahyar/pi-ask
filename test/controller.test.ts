@@ -102,6 +102,16 @@ describe("AskUserController", () => {
       controller.selectChoiceOption(c, 1);
       expect(controller.isQuestionMarkedUnanswered("c1")).toBe(false);
     });
+
+    it("out-of-bounds index is a no-op and does not deselect the current selection", () => {
+      const controller = makeController([choice({ recommendation: "b" })]);
+      const c = choiceQuestion(controller);
+      expect(controller.isOptionSelected("c1", "b")).toBe(true);
+      controller.selectChoiceOption(c, 99);
+      expect(controller.isOptionSelected("c1", "b")).toBe(true);
+      controller.selectChoiceOption(c, -1);
+      expect(controller.isOptionSelected("c1", "b")).toBe(true);
+    });
   });
 
   describe("toggleChoiceOption", () => {
@@ -154,6 +164,12 @@ describe("AskUserController", () => {
       controller.setTextAnswer("t1", "   ");
       expect(controller.getTextAnswer("t1")).toBe("");
       expect(controller.isQuestionMarkedUnanswered("t1")).toBe(true);
+    });
+
+    it("sanitizes control and bidi characters out of answers", () => {
+      const controller = makeController([text()]);
+      controller.setTextAnswer("t1", "\u001b[31mred\u202Eevil");
+      expect(controller.getTextAnswer("t1")).toBe("[31mredevil");
     });
   });
 
@@ -215,6 +231,17 @@ describe("AskUserController", () => {
       expect(controller.getOptionComment("c1", "a")).toBeUndefined();
       controller.setChoiceOptionComment(c, 99, undefined);
       expect(controller.getOptionComment("c1", "a")).toBeUndefined();
+    });
+
+    it("sanitizes control and bidi characters out of comments", () => {
+      const controller = makeController([choice()]);
+      const c = choiceQuestion(controller);
+      controller.setComment("\u202Ehi\u202C");
+      expect(controller.comment).toBe("hi");
+      controller.setQuestionComment("c1", "\u001b[1mbold\u001b[0m");
+      expect(controller.getQuestionComment("c1")).toBe("[1mbold[0m");
+      controller.setChoiceOptionComment(c, 1, "\u0085weird\u009B");
+      expect(controller.getOptionComment("c1", "b")).toBe("weird");
     });
   });
 
