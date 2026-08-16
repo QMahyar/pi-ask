@@ -1,15 +1,29 @@
 // Session-scoped single-active interaction guard for ask_user.
 
 export class ActiveQuestionnaireLock {
-  private active: boolean = false;
+  private owner: string | undefined;
 
-  acquire(): boolean {
-    if (this.active) return false;
-    this.active = true;
+  acquire(owner: string): boolean {
+    if (!owner || this.owner !== undefined) return false;
+    this.owner = owner;
     return true;
   }
 
-  release(): void {
-    this.active = false;
+  release(owner: string): void {
+    this.releaseIfOwner(owner);
+  }
+
+  releaseIfOwner(owner: string): boolean {
+    if (this.owner !== owner) return false;
+    this.owner = undefined;
+    return true;
+  }
+
+  isLocked(): boolean {
+    return this.owner !== undefined;
+  }
+
+  getOwner(): string | undefined {
+    return this.owner;
   }
 }
