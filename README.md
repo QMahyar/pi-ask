@@ -38,11 +38,24 @@ Tell Pi when you want a structured handoff:
 
 The agent calls the `ask_user` tool. You answer in the form, review, submit. Pi resumes with structured responses.
 
-Headless sessions (print/RPC without UI) error out with a clear message — `ask_user` requires the interactive TUI.
+Headless sessions (print/JSON/RPC/SDK — any non-TUI mode) error out with a clear message: `ask_user` requires the interactive TUI.
+
+### Behavior
+
+- **Cancel aborts the turn** — pressing Esc cancels the form; the turn is aborted and the model sees `The user interaction was cancelled.` (a shutdown aborts with `The user interaction was aborted.`).
+- **No implicit pre-selection** — single-select questions start with nothing selected unless the agent passes a `recommendation`; unanswered questions come back as `needs_discussion` so the agent follows up instead of assuming.
+- **Config edits need a reload** — prompt-surface config is resolved at session start; edits to config files take effect after `/reload` or in a new session.
+- **Transcript integration** — each completed form is appended as an `ask_user` custom entry (title + question count, expandable in the transcript) and the successful tool result is labeled `decision`, visible and filterable in pi's `/tree`.
+
+### Limits
+
+- **1-10 questions** per form; **2-12 options** per choice question.
+- Character limits: question `header` ≤ 60, `prompt` ≤ 4000, form `title` ≤ 120, `intro` ≤ 4000, text `placeholder` ≤ 200, option `label` ≤ 200, option `description` ≤ 1000, option `details` ≤ 2000, option `value` ≤ 200, question `id` ≤ 100, each `recommendation` entry ≤ 200.
+- Rejected with a clear validation error: duplicate question `id`s, duplicate option `value`s, duplicate question `header`s, empty `id`/`header`/`prompt`, empty option `value`/`label`.
 
 ### Deprecated fields
 
-Top-level `allowPartialSubmit` and choice `required` / `initial` / `allowOther` (text `required` / `initial`) are rejected with a clear error pointing at the replacement — use `recommendation` for suggested answers and the `needs_discussion` outcome for unanswered questions.
+Top-level `allowPartialSubmit` and choice `required` are rejected with an error pointing at the `needs_discussion` outcome for unanswered questions; choice `allowOther` is rejected with an error pointing at adding a text question; choice/text `initial` and text `required` are rejected with an error pointing at `recommendation` for suggested answers.
 
 ### Text input
 
@@ -72,13 +85,32 @@ Optional prompt-surface overrides live in pi config under an `ask-user` section:
 
 Additional prompt-surface fields:
 
-- `$reset` — array of field names to restore to package defaults before other overrides apply
-- `prependPromptGuidelines` / `appendPromptGuidelines` — string arrays inserted before / after `promptGuidelines`
+- `$reset` — array of field names to restore to package defaults before other overrides apply. At project scope, `$reset` restores a field to the state resolved from global scope (package defaults + global overrides) — it does not discard global overrides — then the project's remaining overrides apply on top. Place it inside `promptSurface`, next to the fields it resets.
+- `promptGuidelines` — full-replace override of the guideline list; `prependPromptGuidelines` / `appendPromptGuidelines` insert string arrays before / after it
 - `description` / `promptSnippet` — direct overrides of the tool description and prompt snippet
+
+Unknown keys and invalid values at every level (`ask-user` section, `tools`, tool name, `promptSurface`) are diagnosed with a warning instead of silently ignored — a typo'd field never silently no-ops. Config changes take effect after `/reload` or in a new session.
 
 ### Events
 
 The extension emits `pi-ask:ask-user:start` and `pi-ask:ask-user:end` on `pi.events` (payload `{ source: "pi-ask" }`), bracketing each form run — useful for consumers to track decision points.
+
+### API
+
+The package ships TypeScript sources with no build step — pi loads them natively, so no compiled output is published.
+
+```ts
+import {
+  AskUserController,
+  AskUserParamsSchema,
+  AskUserValidationError,
+  normalizeQuestionnaire,
+} from "@qmahyar/pi-ask";
+```
+
+- The root export `@qmahyar/pi-ask` and the back-compat subpath `@qmahyar/pi-ask/api` expose the same surface: `normalizeQuestionnaire`, `AskUserValidationError`, `AskUserParamsSchema`, `AskUserController`, plus the normalized questionnaire and response types.
+- `typebox` is a peer dependency (pi bundles it); to use `AskUserParamsSchema` outside pi, provide `typebox` yourself.
+- The package ships TypeScript sources with no build step. Pi loads `.ts` natively; other consumers need a TS-aware runtime or loader — Node with `--experimental-transform-types`, `tsx`, or a bundler with `allowImportingTsExtensions` (plain `--experimental-strip-types` cannot handle `AskUserController`'s parameter properties).
 
 ## Development
 
