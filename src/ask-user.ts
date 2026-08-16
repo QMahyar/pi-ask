@@ -162,7 +162,7 @@ export async function executeAskUser(
     throw error;
   }
 
-  if (!ctx.hasUI || ctx.mode !== "tui") {
+  if (!canShowForm(ctx.hasUI, ctx.mode)) {
     throw new Error(
       "ask_user requires an interactive TUI session. No user-facing form UI is available in the current mode.",
     );
@@ -229,6 +229,15 @@ export async function executeAskUser(
 
 export function shouldLabelDecision(toolName: string, isError: boolean): boolean {
   return toolName === ASK_USER_TOOL_NAME && !isError;
+}
+
+/**
+ * Whether an interactive ask_user form can be shown: requires a UI and the TUI
+ * mode. Every other mode (print, json, rpc, and SDK sessions) is headless —
+ * the form cannot be rendered there even when a dialog-capable UI exists.
+ */
+export function canShowForm(hasUI: boolean, mode: string): boolean {
+  return hasUI && mode === "tui";
 }
 
 let nextLockOwner = 0;
