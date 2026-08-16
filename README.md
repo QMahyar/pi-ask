@@ -55,7 +55,7 @@ Headless sessions (print/JSON/RPC/SDK — any non-TUI mode) error out with a cle
 
 ### Deprecated fields
 
-Top-level `allowPartialSubmit` and choice `required` are rejected with an error pointing at the `needs_discussion` outcome for unanswered questions; choice `allowOther` is rejected with an error pointing at adding a text question; choice/text `initial` and text `required` are rejected with an error pointing at `recommendation` for suggested answers.
+Top-level `allowPartialSubmit` and `required` on either question kind are rejected with an error pointing at the `needs_discussion` outcome for unanswered questions; choice `allowOther` is rejected with an error pointing at adding a text question; `initial` on either question kind is rejected with an error pointing at `recommendation` for suggested answers.
 
 ### Text input
 
