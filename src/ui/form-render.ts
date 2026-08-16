@@ -228,7 +228,13 @@ function renderChoiceScreen(args: RenderFormFrameArgs): FrameBody {
   lines.push("");
 
   if (args.detailsText && args.width >= 80) {
-    return renderChoiceWithDetails(args, question);
+    const merged = renderChoiceWithDetails(args, question);
+    const promptLines = lines.length;
+    return {
+      lines: [...lines, ...merged.lines],
+      focusStart: merged.focusStart === undefined ? undefined : merged.focusStart + promptLines,
+      focusEnd: merged.focusEnd === undefined ? undefined : merged.focusEnd + promptLines,
+    };
   }
 
   let focusStart: number | undefined;
