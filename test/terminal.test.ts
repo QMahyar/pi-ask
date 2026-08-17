@@ -13,7 +13,8 @@ describe("formatTitle", () => {
   });
 
   it("uses the cwd basename only, not the full path", () => {
-    expect(formatTitle("s", "C:\\Users\\me\\project")).toBe("π - s - project");
+    expect(formatTitle("s", "C:/Users/me/project")).toBe("π - s - project");
+    expect(formatTitle("s", "/home/me/project")).toBe("π - s - project");
   });
 
   it("strips control characters from the cwd basename", () => {
