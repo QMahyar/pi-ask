@@ -433,7 +433,8 @@ describe("askUserExtension lifecycle", () => {
     const { pi, handlers } = makeExtensionPi();
     askUserExtension(pi);
 
-    const handler = handlers.get("tool_result")![0];
+    const handler = handlers.get("tool_result")?.[0];
+    if (!handler) throw new Error("no tool_result handler");
     handler(
       { toolName: ASK_USER_TOOL_NAME, toolCallId: "tc-1", isError: false },
       { sessionManager: { getEntries: () => [entry("tc-1", "entry-1")] } },
@@ -446,7 +447,8 @@ describe("askUserExtension lifecycle", () => {
     const { pi, handlers } = makeExtensionPi();
     askUserExtension(pi);
 
-    const handler = handlers.get("tool_result")![0];
+    const handler = handlers.get("tool_result")?.[0];
+    if (!handler) throw new Error("no tool_result handler");
     // getEntries() is oldest-first; the reverse search must find the LAST match.
     handler(
       { toolName: ASK_USER_TOOL_NAME, toolCallId: "tc-9", isError: false },
@@ -468,7 +470,8 @@ describe("askUserExtension lifecycle", () => {
     const { pi, handlers } = makeExtensionPi();
     askUserExtension(pi);
 
-    const handler = handlers.get("tool_result")![0];
+    const handler = handlers.get("tool_result")?.[0];
+    if (!handler) throw new Error("no tool_result handler");
     const ctx = { sessionManager: { getEntries: () => [entry("tc-1", "entry-1")] } };
     handler({ toolName: ASK_USER_TOOL_NAME, toolCallId: "tc-1", isError: true }, ctx);
     handler({ toolName: "bash", toolCallId: "tc-1", isError: false }, ctx);
@@ -482,7 +485,9 @@ describe("askUserExtension lifecycle", () => {
     askUserExtension(pi);
 
     for (const handler of handlers.get("session_shutdown") ?? []) handler();
-    handlers.get("tool_result")![0](
+    const handler = handlers.get("tool_result")?.[0];
+    if (!handler) throw new Error("no tool_result handler");
+    handler(
       { toolName: ASK_USER_TOOL_NAME, toolCallId: "tc-1", isError: false },
       { sessionManager: { getEntries: () => [entry("tc-1", "entry-1")] } },
     );
@@ -494,12 +499,17 @@ describe("askUserExtension lifecycle", () => {
     const { pi, handlers } = makeExtensionPi();
     askUserExtension(pi);
 
-    const handler = handlers.get("tool_result")![0];
+    const handler = handlers.get("tool_result")?.[0];
+    if (!handler) throw new Error("no tool_result handler");
     handler(
       { toolName: ASK_USER_TOOL_NAME, toolCallId: "tc-1", isError: false },
-      { sessionManager: { getEntries: () => {
-        throw new Error("boom");
-      } } },
+      {
+        sessionManager: {
+          getEntries: () => {
+            throw new Error("boom");
+          },
+        },
+      },
     );
     await flushTimers();
     expect(pi.setLabel).not.toHaveBeenCalled();
@@ -528,7 +538,8 @@ describe("askUserExtension lifecycle", () => {
 
         // createSessionNameTracker registers a session_start handler too; the
         // extension's re-registration handler is the last one.
-        const sessionStart = handlers.get("session_start")!.at(-1)!;
+        const sessionStart = handlers.get("session_start")?.at(-1);
+        if (!sessionStart) throw new Error("no session_start handler");
         await sessionStart(
           {},
           {
@@ -610,7 +621,9 @@ describe("executeAskUser error paths and side effects", () => {
       })),
     };
 
-    await expect(executeAskUser(params, undefined, ctx, new ActiveQuestionnaireLock(), makePi())).rejects.toMatchObject({
+    await expect(
+      executeAskUser(params, undefined, ctx, new ActiveQuestionnaireLock(), makePi()),
+    ).rejects.toMatchObject({
       message: expect.stringMatching(/1-10 questions/),
       cause: expect.any(AskUserValidationError),
     });
@@ -632,9 +645,7 @@ describe("executeAskUser error paths and side effects", () => {
       questions: 1,
     });
     expect(result.content[0]?.type).toBe("text");
-    expect(
-      result.content.find((c) => c.type === "text")?.text,
-    ).toContain("Pick: A");
+    expect(result.content.find((c) => c.type === "text")?.text).toContain("Pick: A");
   });
 
   it("toggles working visibility and restores the terminal title around the run", async () => {
@@ -669,12 +680,12 @@ describe("executeAskUser error paths and side effects", () => {
     const { ctx } = makeCtx(vi.fn());
     const lock = new ActiveQuestionnaireLock();
 
-    await expect(
-      executeAskUser({ questions: [] }, undefined, ctx, lock, pi),
-    ).rejects.toMatchObject({
-      message: expect.stringMatching(/1-10 questions/),
-      cause: expect.any(AskUserValidationError),
-    });
+    await expect(executeAskUser({ questions: [] }, undefined, ctx, lock, pi)).rejects.toMatchObject(
+      {
+        message: expect.stringMatching(/1-10 questions/),
+        cause: expect.any(AskUserValidationError),
+      },
+    );
     // Validation fails before the lock is acquired; nothing to release.
     expect(lock.isLocked()).toBe(false);
   });
@@ -688,7 +699,15 @@ describe("executeAskUser error paths and side effects", () => {
     const lock = new ActiveQuestionnaireLock();
     const pi = makePi();
 
-    const first = executeAskUser(makeSubmittedParams(), undefined, ctx, lock, pi, undefined, "owner-1");
+    const first = executeAskUser(
+      makeSubmittedParams(),
+      undefined,
+      ctx,
+      lock,
+      pi,
+      undefined,
+      "owner-1",
+    );
     await expect(
       executeAskUser(makeSubmittedParams(), undefined, ctx, lock, pi, undefined, "owner-2"),
     ).rejects.toThrow("another ask_user form is already in flight");
@@ -723,7 +742,13 @@ describe("executeAskUser error paths and side effects", () => {
     } as unknown as AskUserExecutionContext;
 
     await expect(
-      executeAskUser(makeSubmittedParams(), undefined, ctx, new ActiveQuestionnaireLock(), makePi()),
+      executeAskUser(
+        makeSubmittedParams(),
+        undefined,
+        ctx,
+        new ActiveQuestionnaireLock(),
+        makePi(),
+      ),
     ).resolves.toBeDefined();
     expect(ctx.ui.setTitle).toBeUndefined();
   });

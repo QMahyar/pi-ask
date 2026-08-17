@@ -95,16 +95,48 @@ describe("renderAskUserCall", () => {
 
 describe("renderAskUserResult collapsed layout", () => {
   const questions = [
-    { type: "choice" as const, id: "c1", header: "Pick", prompt: "Which?", multi: false, recommendedIndexes: [], options: [{ value: "a", label: "Alpha" }, { value: "b", label: "Beta" }] },
-    { type: "text" as const, id: "t1", header: "Notes", prompt: "Anything?", recommendation: undefined, placeholder: undefined },
-    { type: "text" as const, id: "t2", header: "Extra", prompt: "More?", recommendation: undefined, placeholder: undefined },
+    {
+      type: "choice" as const,
+      id: "c1",
+      header: "Pick",
+      prompt: "Which?",
+      multi: false,
+      recommendedIndexes: [],
+      options: [
+        { value: "a", label: "Alpha" },
+        { value: "b", label: "Beta" },
+      ],
+    },
+    {
+      type: "text" as const,
+      id: "t1",
+      header: "Notes",
+      prompt: "Anything?",
+      recommendation: undefined,
+      placeholder: undefined,
+    },
+    {
+      type: "text" as const,
+      id: "t2",
+      header: "Extra",
+      prompt: "More?",
+      recommendation: undefined,
+      placeholder: undefined,
+    },
   ];
 
   const details: AskUserToolDetails = {
     outcome: "submitted",
     questions,
     responses: [
-      { questionId: "c1", answer: { kind: "choice", answered: true, options: [{ value: "a", label: "Alpha", selected: true }] } },
+      {
+        questionId: "c1",
+        answer: {
+          kind: "choice",
+          answered: true,
+          options: [{ value: "a", label: "Alpha", selected: true }],
+        },
+      },
       { questionId: "t1", answer: { kind: "text", answered: true, value: "first note" } },
       { questionId: "t2", answer: { kind: "text", answered: true, value: "second note" } },
     ],
@@ -128,7 +160,14 @@ describe("renderAskUserResult collapsed layout", () => {
         outcome: "needs_discussion",
         questions,
         responses: [
-          { questionId: "c1", answer: { kind: "choice", answered: true, options: [{ value: "a", label: "Alpha", selected: true }] } },
+          {
+            questionId: "c1",
+            answer: {
+              kind: "choice",
+              answered: true,
+              options: [{ value: "a", label: "Alpha", selected: true }],
+            },
+          },
           { questionId: "t1", answer: { kind: "text", answered: false } },
           { questionId: "t2", answer: { kind: "text", answered: false } },
         ],
@@ -182,26 +221,46 @@ describe("renderAskUserResult expanded layout", () => {
       intro: "We need a decision.",
       comment: "Go with caution",
       questions: [
-        { type: "choice" as const, id: "c1", header: "Pick", prompt: "Which?", multi: true, recommendedIndexes: [], options: [{ value: "a", label: "Alpha" }, { value: "b", label: "Beta" }] },
-        { type: "text" as const, id: "t1", header: "Notes", prompt: "Anything?", recommendation: undefined, placeholder: undefined },
-      ],
-      responses: [
-      {
-        questionId: "c1",
-        answer: {
-          kind: "choice",
-          answered: true,
+        {
+          type: "choice" as const,
+          id: "c1",
+          header: "Pick",
+          prompt: "Which?",
+          multi: true,
+          recommendedIndexes: [],
           options: [
-            { value: "a", label: "Alpha", selected: true },
-            { value: "b", label: "Beta", selected: false, comment: "revisit later" },
+            { value: "a", label: "Alpha" },
+            { value: "b", label: "Beta" },
           ],
         },
-        questionComment: "check the rollout",
-      },
-      { questionId: "t1", answer: { kind: "text", answered: true, value: "do it slowly" } },
+        {
+          type: "text" as const,
+          id: "t1",
+          header: "Notes",
+          prompt: "Anything?",
+          recommendation: undefined,
+          placeholder: undefined,
+        },
+      ],
+      responses: [
+        {
+          questionId: "c1",
+          answer: {
+            kind: "choice",
+            answered: true,
+            options: [
+              { value: "a", label: "Alpha", selected: true },
+              { value: "b", label: "Beta", selected: false, comment: "revisit later" },
+            ],
+          },
+          questionComment: "check the rollout",
+        },
+        { questionId: "t1", answer: { kind: "text", answered: true, value: "do it slowly" } },
       ],
     };
-    const text = renderText(renderAskUserResult({ content: [], details }, plainTheme, { expanded: true }));
+    const text = renderText(
+      renderAskUserResult({ content: [], details }, plainTheme, { expanded: true }),
+    );
     expect(text).toContain("Deploy plan");
     expect(text).toContain("We need a decision.");
     expect(text).toContain("Comment: Go with caution");
@@ -217,11 +276,20 @@ describe("renderAskUserResult expanded layout", () => {
     const details: AskUserToolDetails = {
       outcome: "needs_discussion",
       questions: [
-        { type: "text" as const, id: "t1", header: "Notes", prompt: "Anything?", recommendation: undefined, placeholder: undefined },
+        {
+          type: "text" as const,
+          id: "t1",
+          header: "Notes",
+          prompt: "Anything?",
+          recommendation: undefined,
+          placeholder: undefined,
+        },
       ],
       responses: [{ questionId: "ghost", answer: { kind: "text", answered: false } }],
     };
-    const text = renderText(renderAskUserResult({ content: [], details }, plainTheme, { expanded: true }));
+    const text = renderText(
+      renderAskUserResult({ content: [], details }, plainTheme, { expanded: true }),
+    );
     expect(text).toContain("Not answered");
   });
 
@@ -230,15 +298,31 @@ describe("renderAskUserResult expanded layout", () => {
       outcome: "needs_discussion",
       title: "Plan",
       questions: [
-        { type: "text" as const, id: "t1", header: "Notes", prompt: "Anything?", recommendation: undefined, placeholder: undefined },
-        { type: "text" as const, id: "t2", header: "Extra", prompt: "More?", recommendation: undefined, placeholder: undefined },
+        {
+          type: "text" as const,
+          id: "t1",
+          header: "Notes",
+          prompt: "Anything?",
+          recommendation: undefined,
+          placeholder: undefined,
+        },
+        {
+          type: "text" as const,
+          id: "t2",
+          header: "Extra",
+          prompt: "More?",
+          recommendation: undefined,
+          placeholder: undefined,
+        },
       ],
       responses: [
         { questionId: "t1", answer: { kind: "text", answered: false } },
         { questionId: "t2", answer: { kind: "text", answered: false } },
       ],
     };
-    const text = renderText(renderAskUserResult({ content: [], details }, plainTheme, { expanded: true }));
+    const text = renderText(
+      renderAskUserResult({ content: [], details }, plainTheme, { expanded: true }),
+    );
     expect(text).toContain("Needs discussion · 0/2 answered");
     expect(text).toContain("2 questions unanswered");
   });
@@ -247,15 +331,31 @@ describe("renderAskUserResult expanded layout", () => {
     const details: AskUserToolDetails = {
       outcome: "needs_discussion",
       questions: [
-        { type: "text" as const, id: "t1", header: "Notes", prompt: "Anything?", recommendation: undefined, placeholder: undefined },
-        { type: "text" as const, id: "t2", header: "Extra", prompt: "More?", recommendation: undefined, placeholder: undefined },
+        {
+          type: "text" as const,
+          id: "t1",
+          header: "Notes",
+          prompt: "Anything?",
+          recommendation: undefined,
+          placeholder: undefined,
+        },
+        {
+          type: "text" as const,
+          id: "t2",
+          header: "Extra",
+          prompt: "More?",
+          recommendation: undefined,
+          placeholder: undefined,
+        },
       ],
       responses: [
         { questionId: "t1", answer: { kind: "text", answered: true, value: "ok" } },
         { questionId: "t2", answer: { kind: "text", answered: false } },
       ],
     };
-    const text = renderText(renderAskUserResult({ content: [], details }, plainTheme, { expanded: true }));
+    const text = renderText(
+      renderAskUserResult({ content: [], details }, plainTheme, { expanded: true }),
+    );
     expect(text).toContain("1 question unanswered");
   });
 });

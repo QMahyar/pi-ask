@@ -1,15 +1,17 @@
 import { describe, expect, it } from "vitest";
 import { buildResult } from "../src/render/result.ts";
 import type { AskUserOutcome, NormalizedQuestion, NormalizedQuestionnaire } from "../src/types.ts";
+
 /** First text block of a tool result (content may also carry image blocks). */
-function firstText(
-  result: { content: Array<{ type: string; text?: string }> },
-): string | undefined {
+function firstText(result: {
+  content: Array<{ type: string; text?: string }>;
+}): string | undefined {
   return result.content.find((c) => c.type === "text")?.text;
 }
 
-
-function choiceQuestion(overrides: Partial<NormalizedQuestion> & Record<string, unknown> = {}): NormalizedQuestion {
+function choiceQuestion(
+  overrides: Partial<NormalizedQuestion> & Record<string, unknown> = {},
+): NormalizedQuestion {
   return {
     type: "choice",
     id: "c1",
@@ -29,7 +31,10 @@ function textQuestion(id = "t1", header = "Notes"): NormalizedQuestion {
   return { type: "text", id, header, prompt: "Anything else?" };
 }
 
-function questionnaire(questions: NormalizedQuestion[], opts: { title?: string; intro?: string } = {}) {
+function questionnaire(
+  questions: NormalizedQuestion[],
+  opts: { title?: string; intro?: string } = {},
+) {
   return {
     ...(opts.title !== undefined ? { title: opts.title } : {}),
     ...(opts.intro !== undefined ? { intro: opts.intro } : {}),
@@ -74,7 +79,10 @@ describe("buildResult — submitted", () => {
   });
 
   it("falls back to 'User submitted the form.' when there is nothing to summarize", () => {
-    const result = buildResult(questionnaire([choiceQuestion()]), submittedOutcome({ responses: [] }));
+    const result = buildResult(
+      questionnaire([choiceQuestion()]),
+      submittedOutcome({ responses: [] }),
+    );
     expect(firstText(result)).toBe("User submitted the form.");
   });
 
@@ -168,26 +176,23 @@ describe("buildResult — submitted", () => {
 
 describe("buildResult — needs_discussion", () => {
   it("prepends the discussion header and unanswered list", () => {
-    const result = buildResult(
-      questionnaire([choiceQuestion(), textQuestion()]),
-      {
-        outcome: "needs_discussion",
-        responses: [
-          {
-            questionId: "c1",
-            answer: {
-              kind: "choice",
-              answered: true,
-              options: [{ value: "a", label: "Alpha", selected: true }],
-            },
+    const result = buildResult(questionnaire([choiceQuestion(), textQuestion()]), {
+      outcome: "needs_discussion",
+      responses: [
+        {
+          questionId: "c1",
+          answer: {
+            kind: "choice",
+            answered: true,
+            options: [{ value: "a", label: "Alpha", selected: true }],
           },
-          {
-            questionId: "t1",
-            answer: { kind: "text", answered: false },
-          },
-        ],
-      },
-    );
+        },
+        {
+          questionId: "t1",
+          answer: { kind: "text", answered: false },
+        },
+      ],
+    });
     const text = firstText(result);
     expect(text).toContain("User needs discussion before a complete decision.");
     expect(text).toContain("Unanswered: t1: Notes");
@@ -195,13 +200,10 @@ describe("buildResult — needs_discussion", () => {
   });
 
   it("lists unanswered questions by id when their question is unknown", () => {
-    const result = buildResult(
-      questionnaire([choiceQuestion()]),
-      {
-        outcome: "needs_discussion",
-        responses: [{ questionId: "ghost", answer: { kind: "text", answered: false } }],
-      },
-    );
+    const result = buildResult(questionnaire([choiceQuestion()]), {
+      outcome: "needs_discussion",
+      responses: [{ questionId: "ghost", answer: { kind: "text", answered: false } }],
+    });
     expect(firstText(result)).toContain("Unanswered: ghost");
   });
 
@@ -214,15 +216,10 @@ describe("buildResult — needs_discussion", () => {
 describe("buildResult — truncation notices", () => {
   it("appends the first-line-exceeds notice for a single oversized line", () => {
     const huge = "x".repeat(60_000);
-    const result = buildResult(
-      questionnaire([textQuestion()]),
-      {
-        outcome: "submitted",
-        responses: [
-          { questionId: "t1", answer: { kind: "text", answered: true, value: huge } },
-        ],
-      },
-    );
+    const result = buildResult(questionnaire([textQuestion()]), {
+      outcome: "submitted",
+      responses: [{ questionId: "t1", answer: { kind: "text", answered: true, value: huge } }],
+    });
     const text = firstText(result);
     expect(text).toContain("[Output truncated: first response line exceeds");
     expect(text).toContain("ask a focused follow-up for omitted text.");
@@ -230,15 +227,10 @@ describe("buildResult — truncation notices", () => {
 
   it("appends the lines-exceeded notice and keeps the head of the summary", () => {
     const manyLines = Array.from({ length: 2100 }, (_, i) => `line ${i}`).join("\n");
-    const result = buildResult(
-      questionnaire([textQuestion()]),
-      {
-        outcome: "submitted",
-        responses: [
-          { questionId: "t1", answer: { kind: "text", answered: true, value: manyLines } },
-        ],
-      },
-    );
+    const result = buildResult(questionnaire([textQuestion()]), {
+      outcome: "submitted",
+      responses: [{ questionId: "t1", answer: { kind: "text", answered: true, value: manyLines } }],
+    });
     const text = firstText(result);
     expect(text).toMatch(/\[Output truncated: showing \d+\/\d+ lines/);
     expect(text).toContain("line 0");

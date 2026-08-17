@@ -24,7 +24,16 @@ describe("package entry (src/api.ts)", () => {
     expect(
       Check(AskUserParamsSchema, {
         questions: [
-          { type: "choice", id: "c", header: "C", prompt: "P?", options: [{ value: "a", label: "A" }, { value: "b", label: "B" }] },
+          {
+            type: "choice",
+            id: "c",
+            header: "C",
+            prompt: "P?",
+            options: [
+              { value: "a", label: "A" },
+              { value: "b", label: "B" },
+            ],
+          },
         ],
       }),
     ).toBe(true);

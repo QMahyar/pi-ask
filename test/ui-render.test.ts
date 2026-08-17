@@ -3,6 +3,7 @@ import { type EditorComponent, visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, it, vi } from "vitest";
 import { AskUserController } from "../src/session/controller.ts";
 import type { NormalizedChoiceQuestion, NormalizedQuestion } from "../src/types.ts";
+import { type RenderFormFrameArgs, renderFormFrame } from "../src/ui/form-render.ts";
 import {
   formatSplitLine,
   padRight,
@@ -12,7 +13,6 @@ import {
   safeWidth,
   wrapLines,
 } from "../src/ui/form-render-primitives.ts";
-import { renderFormFrame, type RenderFormFrameArgs } from "../src/ui/form-render.ts";
 import { renderReviewScreen } from "../src/ui/form-review-render.ts";
 import { defaultChoiceRowIndex, focusForMode } from "../src/ui/form-view.ts";
 
@@ -41,7 +41,9 @@ function stubEditor(text = ""): EditorComponent {
   } as unknown as EditorComponent;
 }
 
-function choiceQuestion(overrides: Partial<NormalizedChoiceQuestion> = {}): NormalizedChoiceQuestion {
+function choiceQuestion(
+  overrides: Partial<NormalizedChoiceQuestion> = {},
+): NormalizedChoiceQuestion {
   return {
     type: "choice",
     id: "c1",
@@ -79,8 +81,7 @@ function makeController(
 }
 
 function frameArgs(overrides: Partial<RenderFormFrameArgs> = {}): RenderFormFrameArgs {
-  const controller =
-    overrides.controller ?? makeController([choiceQuestion(), textQuestion()]);
+  const controller = overrides.controller ?? makeController([choiceQuestion(), textQuestion()]);
   return {
     width: 60,
     theme: makeTheme() as unknown as Theme,
@@ -114,9 +115,7 @@ describe("focusForMode", () => {
 
 describe("defaultChoiceRowIndex", () => {
   it("returns the row of the first selected option (prefill)", () => {
-    const controller = makeController([
-      choiceQuestion({ recommendedIndexes: [1] }),
-    ]);
+    const controller = makeController([choiceQuestion({ recommendedIndexes: [1] })]);
     const question = controller.currentQuestion as NormalizedChoiceQuestion;
     expect(defaultChoiceRowIndex(controller, question)).toBe(1);
   });
@@ -283,7 +282,9 @@ describe("renderFormFrame header", () => {
 describe("renderFormFrame choice screen", () => {
   it("highlights the focused option with accent color and arrow prefix", () => {
     const theme = makeTheme();
-    const { text } = renderFrame(frameArgs({ theme: theme as unknown as Theme, choiceFocusIndex: 1 }));
+    const { text } = renderFrame(
+      frameArgs({ theme: theme as unknown as Theme, choiceFocusIndex: 1 }),
+    );
     expect(text).toContain("→");
     const accents = theme.calls.filter(([color]) => color === "accent");
     expect(accents.some(([, t]) => t.includes("Beta"))).toBe(true);
@@ -301,16 +302,18 @@ describe("renderFormFrame choice screen", () => {
         ],
       }),
     ]);
-    controller.setChoiceOptionComment(controller.currentQuestion as NormalizedChoiceQuestion, 1, "wait");
+    controller.setChoiceOptionComment(
+      controller.currentQuestion as NormalizedChoiceQuestion,
+      1,
+      "wait",
+    );
     const { text } = renderFrame(frameArgs({ controller }));
     expect(text).toContain("[recommended]");
     expect(text).toContain("[comment]");
   });
 
   it("shows selected markers for multi-select questions", () => {
-    const controller = makeController([
-      choiceQuestion({ multi: true, recommendedIndexes: [0] }),
-    ]);
+    const controller = makeController([choiceQuestion({ multi: true, recommendedIndexes: [0] })]);
     const { text } = renderFrame(frameArgs({ controller }));
     expect(text).toContain("[x] Alpha");
     expect(text).toContain("[ ] Beta");

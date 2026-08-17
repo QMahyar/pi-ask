@@ -1,9 +1,9 @@
-import { Key, matchesKey, type TUI } from "@earendil-works/pi-tui";
 import type { KeybindingsManager } from "@earendil-works/pi-coding-agent";
+import { Key, matchesKey, type TUI } from "@earendil-works/pi-tui";
 import { describe, expect, it, vi } from "vitest";
+import { AskUserController } from "../src/session/controller.ts";
 import type { AskUserInteractionResult, AskUserOutcome, NormalizedQuestion } from "../src/types.ts";
 import { AskUserForm } from "../src/ui/form-component.ts";
-import { AskUserController } from "../src/session/controller.ts";
 import type { EditorFactory } from "../src/ui/types.ts";
 
 // Drive the real AskUserForm state machine through runFormQuestionnaire's
@@ -175,7 +175,11 @@ describe("AskUserForm via the custom-factory seam", () => {
       responses: [
         {
           questionId: "c1",
-          answer: { kind: "choice", answered: true, options: [{ value: "b", label: "Beta", selected: true }] },
+          answer: {
+            kind: "choice",
+            answered: true,
+            options: [{ value: "b", label: "Beta", selected: true }],
+          },
         },
         { questionId: "t1", answer: { kind: "text", answered: true, value: "hello" } },
       ],
@@ -185,7 +189,17 @@ describe("AskUserForm via the custom-factory seam", () => {
 
   it("toggles multi-select options with Space and reports needs_discussion when marked unanswered", async () => {
     const mounted = mountForm({
-      questions: [choiceQuestion({ id: "m1", multi: true, options: [{ value: "a", label: "A" }, { value: "b", label: "B" }, { value: "c", label: "C" }] })],
+      questions: [
+        choiceQuestion({
+          id: "m1",
+          multi: true,
+          options: [
+            { value: "a", label: "A" },
+            { value: "b", label: "B" },
+            { value: "c", label: "C" },
+          ],
+        }),
+      ],
     });
 
     // Toggle twice: selected then unselected.
@@ -226,9 +240,7 @@ describe("AskUserForm via the custom-factory seam", () => {
     const outcome = await mounted.donePromise;
     expect(outcome).toMatchObject({
       outcome: "submitted",
-      responses: [
-        { questionId: "big", answer: { options: [{ value: "v11", selected: true }] } },
-      ],
+      responses: [{ questionId: "big", answer: { options: [{ value: "v11", selected: true }] } }],
     });
     await mounted.donePromise;
   });

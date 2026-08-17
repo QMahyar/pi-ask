@@ -427,9 +427,7 @@ describe("readJsonFile root and error-code fallbacks", () => {
       expect(readJsonFile(globalConfigFile)).toBeNull();
     }
     expect(warn).toHaveBeenCalledTimes(4);
-    expect(warn).toHaveBeenCalledWith(
-      expect.stringContaining("Config file root is not an object"),
-    );
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("Config file root is not an object"));
   });
 
   it("falls back to 'unknown error' when a read error carries no code", async () => {
