@@ -71,9 +71,3 @@ export function wrapLines(lines: string[], width: number): string[] {
 export function safeWidth(width: number): number {
   return Math.max(1, width);
 }
-
-/** Selection marker glyphs: single-select uses parentheses, multi-select uses brackets. */
-export function choiceMarker(multi: boolean, selected: boolean): string {
-  if (multi) return selected ? "[x]" : "[ ]";
-  return selected ? "(*)" : "( )";
-}

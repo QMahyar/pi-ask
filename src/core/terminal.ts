@@ -8,7 +8,7 @@ import path from "node:path";
 import { normalizeDisplayText } from "../normalize.ts";
 
 /** Unicode dot shown when waiting for user input. */
-export const WAITING_SYMBOL = "\u25CF";
+const WAITING_SYMBOL = "\u25CF";
 
 /** Minimal UI surface needed for title operations. */
 export interface TitleTarget {
@@ -38,7 +38,7 @@ export function formatTitle(sessionName?: string, cwd?: string): string {
 }
 
 /** Sound the audible terminal bell (ASCII BEL). */
-export function signalBell(): void {
+function signalBell(): void {
   process.stdout.write("\x07");
 }
 

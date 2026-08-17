@@ -3,8 +3,8 @@ import { Box, Text } from "@earendil-works/pi-tui";
 import {
   notifyToolPromptSurfaceDiagnostics,
   resolveToolPromptSurface,
-} from "./core/prompt-surface";
-import { createSessionNameTracker } from "./core/session";
+} from "./core/config/prompt-surface.ts";
+import { createSessionNameTracker } from "./core/session-utils.ts";
 import { formatTitle, signalWaiting } from "./core/terminal";
 import { AskUserValidationError, normalizeQuestionnaire } from "./normalize.ts";
 import { type AskUserToolResult, buildResult } from "./render/result.ts";
@@ -16,11 +16,10 @@ import {
   ASK_USER_TOOL_LABEL,
   ASK_USER_TOOL_NAME,
 } from "./tool/guidance.ts";
-import type {
-  AskUserInteractionResult,
-  AskUserOutcome,
-  AskUserToolDetails,
-  NormalizedQuestionnaire,
+import {
+  type AskUserToolDetails,
+  isAskUserInteractionResult,
+  type NormalizedQuestionnaire,
 } from "./types.ts";
 import { runQuestionnaire } from "./ui/choose-renderer.ts";
 import type { EditorFactory } from "./ui/types.ts";
@@ -48,7 +47,7 @@ export default function askUserExtension(pi: ExtensionAPI): void {
     // process, a form left hanging at shutdown would block ask_user for every
     // later session. The owning execute's finally is a no-op for a stale release.
     const owner = lock.getOwner();
-    if (owner !== undefined) lock.release(owner);
+    if (owner !== undefined) lock.releaseIfOwner(owner);
   });
 
   // Label ask_user tool results so they're visible and filterable in /tree.
@@ -217,7 +216,7 @@ export async function executeAskUser(
     }
 
     // Internal cancel/abort: treat as control flow, abort the turn, and mark the tool failed.
-    if (isInternalInteractionResult(outcome)) {
+    if (isAskUserInteractionResult(outcome)) {
       ctx.abort();
       throw new Error(
         outcome.kind === "abort"
@@ -237,7 +236,7 @@ export async function executeAskUser(
     pi.events.emit("pi-ask:ask-user:end", { source: "pi-ask" });
     pi.events.emit("herdr:blocked", { active: false });
     restoreTerminalTitle(ctx, sessionName);
-    lock.release(owner);
+    lock.releaseIfOwner(owner);
   }
 }
 
@@ -255,16 +254,6 @@ export function canShowForm(hasUI: boolean, mode: string): boolean {
 }
 
 let nextLockOwner = 0;
-
-function isInternalInteractionResult(
-  outcome: AskUserOutcome | AskUserInteractionResult | "unsupported",
-): outcome is AskUserInteractionResult {
-  return (
-    typeof outcome === "object" &&
-    "kind" in outcome &&
-    (outcome.kind === "cancel" || outcome.kind === "abort")
-  );
-}
 
 function signalAttention(ctx: AskUserExecutionContext): void {
   signalWaiting(ctx, "pi — waiting for your input");

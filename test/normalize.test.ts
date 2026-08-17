@@ -561,6 +561,65 @@ describe("question element and count validation", () => {
   });
 });
 
+describe("question kind validation", () => {
+  it("rejects an unknown question type instead of coercing it to text", () => {
+    expect(() =>
+      normalizeQuestionnaire({
+        questions: [{ type: "bogus", id: "c", header: "C", prompt: "P?" }] as never,
+      }),
+    ).toThrow(AskUserValidationError);
+    expect(() =>
+      normalizeQuestionnaire({
+        questions: [{ type: "bogus", id: "c", header: "C", prompt: "P?" }] as never,
+      }),
+    ).toThrow(/Question "c" has unknown type "bogus"/);
+  });
+
+  it("rejects a case-mismatched type like TEXT", () => {
+    expect(() =>
+      normalizeQuestionnaire({
+        questions: [{ type: "TEXT", id: "c", header: "C", prompt: "P?" }] as never,
+      }),
+    ).toThrow(/Question "c" has unknown type "TEXT"/);
+  });
+
+  it("rejects a non-string type", () => {
+    expect(() =>
+      normalizeQuestionnaire({
+        questions: [{ type: 5, id: "c", header: "C", prompt: "P?" }] as never,
+      }),
+    ).toThrow(/Question "c" has unknown type "5"/);
+  });
+
+  it("sanitizes control characters out of the rejected type name", () => {
+    expect(() =>
+      normalizeQuestionnaire({
+        questions: [{ type: "text\u001b[31m", id: "c", header: "C", prompt: "P?" }] as never,
+      }),
+    ).toThrow(/Question "c" has unknown type "text\[31m"/);
+  });
+
+  it("still accepts both supported kinds", () => {
+    const q = normalizeQuestionnaire({
+      title: "T",
+      questions: [
+        {
+          type: "choice",
+          id: "c",
+          header: "C",
+          prompt: "P?",
+          options: [
+            { value: "a", label: "A" },
+            { value: "b", label: "B" },
+          ],
+        },
+        { type: "text", id: "t", header: "H", prompt: "P?" },
+      ],
+    });
+    expect(q.questions.map((question) => question.type)).toEqual(["choice", "text"]);
+  });
+});
+
 describe("id, header, and prompt validation", () => {
   it("rejects an empty id", () => {
     expect(() =>
@@ -657,6 +716,34 @@ describe("recommendation shape validation", () => {
     ],
   };
 
+  it("rejects multiple recommendation entries on a single-select question", () => {
+    expect(() =>
+      normalizeQuestionnaire({
+        questions: [{ ...choiceQuestion, recommendation: ["a", "b"] }],
+      }),
+    ).toThrow(/single-select question "c" recommendation must have at most 1 entry \(got 2\)/);
+  });
+
+  it("keeps one array entry valid on a single-select question", () => {
+    const q = normalizeQuestionnaire({
+      questions: [{ ...choiceQuestion, recommendation: ["b"] }],
+    });
+    const [choice] = q.questions;
+    if (choice.type === "choice") {
+      expect(choice.recommendedIndexes).toEqual([1]);
+    }
+  });
+
+  it("keeps multiple entries valid on a multi-select question", () => {
+    const q = normalizeQuestionnaire({
+      questions: [{ ...choiceQuestion, multi: true, recommendation: ["a", "b"] }],
+    });
+    const [choice] = q.questions;
+    if (choice.type === "choice") {
+      expect(choice.recommendedIndexes).toEqual([0, 1]);
+    }
+  });
+
   it("rejects a plain-string recommendation on a multi-select question", () => {
     expect(() =>
       normalizeQuestionnaire({
@@ -668,7 +755,7 @@ describe("recommendation shape validation", () => {
   it("rejects duplicate recommendation values", () => {
     expect(() =>
       normalizeQuestionnaire({
-        questions: [{ ...choiceQuestion, recommendation: ["a", "a"] }],
+        questions: [{ ...choiceQuestion, multi: true, recommendation: ["a", "a"] }],
       }),
     ).toThrow(/duplicate recommendation value "a"/);
   });
@@ -677,7 +764,7 @@ describe("recommendation shape validation", () => {
     const entries = Array.from({ length: 13 }, (_, i) => `v${i}`);
     expect(() =>
       normalizeQuestionnaire({
-        questions: [{ ...choiceQuestion, recommendation: entries }],
+        questions: [{ ...choiceQuestion, multi: true, recommendation: entries }],
       }),
     ).toThrow(/recommendation must have at most 12 entries \(got 13\)/);
   });

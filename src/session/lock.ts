@@ -9,10 +9,6 @@ export class ActiveQuestionnaireLock {
     return true;
   }
 
-  release(owner: string): void {
-    this.releaseIfOwner(owner);
-  }
-
   releaseIfOwner(owner: string): boolean {
     if (this.owner !== owner) return false;
     this.owner = undefined;

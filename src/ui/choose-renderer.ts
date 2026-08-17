@@ -1,7 +1,8 @@
-import type {
-  AskUserInteractionResult,
-  AskUserOutcome,
-  NormalizedQuestionnaire,
+import {
+  type AskUserInteractionResult,
+  type AskUserOutcome,
+  isAskUserInteractionResult,
+  type NormalizedQuestionnaire,
 } from "../types.ts";
 import { runFormQuestionnaire } from "./form.ts";
 import type { RunQuestionnaireOptions } from "./types.ts";
@@ -23,5 +24,5 @@ function isQuestionnaireResult(
   if ("outcome" in result) {
     return result.outcome === "submitted" || result.outcome === "needs_discussion";
   }
-  return "kind" in result && (result.kind === "cancel" || result.kind === "abort");
+  return isAskUserInteractionResult(result);
 }

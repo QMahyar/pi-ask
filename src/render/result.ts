@@ -14,7 +14,7 @@ import type {
   NormalizedQuestion,
   NormalizedQuestionnaire,
 } from "../types.ts";
-import { formatSelectedOptions } from "./answer-format.ts";
+import { formatAnswerValue } from "./answer-format.ts";
 
 export type AskUserToolResult = AgentToolResult<AskUserToolDetails>;
 
@@ -90,7 +90,7 @@ function formatUnansweredSummary(
       if (!question) return response.questionId;
       // Identify unanswered questions by their stable id, with the human
       // header alongside for context (headers are unique per form).
-      return question.id ? `${question.id}: ${question.header}` : question.header;
+      return `${question.id}: ${question.header}`;
     });
 
   return unanswered.length > 0 ? [`Unanswered: ${unanswered.join(", ")}`] : [];
@@ -116,18 +116,8 @@ function formatResponseSummaryLines(
 }
 
 function formatAnswerSummaryLine(header: string, response: AskUserResponse): string | undefined {
-  if (!response.answer.answered) return undefined;
-
-  if (response.answer.kind === "choice") {
-    const selected = formatSelectedOptions(response.answer.options);
-    return selected ? `${header}: ${selected}` : undefined;
-  }
-
-  if (response.answer.kind === "text" && response.answer.value) {
-    return `${header}: ${response.answer.value}`;
-  }
-
-  return undefined;
+  const value = formatAnswerValue(response);
+  return value ? `${header}: ${value}` : undefined;
 }
 
 function formatUnselectedOptionCommentLines(

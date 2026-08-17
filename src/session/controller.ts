@@ -203,17 +203,19 @@ export class AskUserController {
   // ── Cancel / Abort (internal interaction results) ───────────────
 
   cancel(): AskUserInteractionResult {
-    if (this.terminal) return { kind: "cancel" };
-    this.terminal = true;
-    this.terminalResult = { kind: "cancel" };
-    return { kind: "cancel" };
+    return this.terminate("cancel");
   }
 
   abort(): AskUserInteractionResult {
-    if (this.terminal) return { kind: "abort" };
+    return this.terminate("abort");
+  }
+
+  /** Terminalize the controller once: further navigation and mutations are no-ops. */
+  private terminate(kind: "cancel" | "abort"): AskUserInteractionResult {
+    if (this.terminal) return { kind };
     this.terminal = true;
-    this.terminalResult = { kind: "abort" };
-    return { kind: "abort" };
+    this.terminalResult = { kind };
+    return { kind };
   }
 
   /** Returns the terminal interaction result if the controller was cancelled/aborted, undefined otherwise. */

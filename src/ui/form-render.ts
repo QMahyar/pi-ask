@@ -1,9 +1,9 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { type EditorComponent, truncateToWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import { choiceMarker } from "../render/answer-format.ts";
 import type { AskUserController } from "../session/controller.ts";
 import type { NormalizedChoiceQuestion } from "../types.ts";
 import {
-  choiceMarker,
   formatSplitLine,
   padRight,
   pushWrappedWithPrefix,

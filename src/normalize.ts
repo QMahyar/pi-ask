@@ -142,6 +142,18 @@ function validateCommonFields(question: ExternalQuestion): void {
       `Question id "${id}" exceeds ${ASK_USER_LIMITS.maxQuestionIdLength} characters.`,
     );
   }
+  if (
+    typeof question.type !== "string" ||
+    (question.type !== "choice" && question.type !== "text")
+  ) {
+    const kind =
+      typeof question.type === "string"
+        ? normalizeDisplayText(question.type)
+        : String(question.type);
+    throw new AskUserValidationError(
+      `Question "${id}" has unknown type "${kind}" — expected "choice" or "text".`,
+    );
+  }
   if (typeof question.header !== "string" || typeof question.prompt !== "string") {
     throw new AskUserValidationError(
       `Question "${id}" must include non-empty header and prompt strings.`,
@@ -320,6 +332,14 @@ function validateRecommendationShape(
   multi: boolean,
 ): void {
   if (value === undefined) return;
+  // A single-select question can pre-select at most one option: more than one
+  // recommended entry would render a radio question with several checked
+  // boxes. Multi-select questions keep accepting any number of entries.
+  if (!multi && Array.isArray(value) && value.length > 1) {
+    throw new AskUserValidationError(
+      `single-select question "${questionId}" recommendation must have at most 1 entry (got ${value.length}).`,
+    );
+  }
   // The schema declares recommendation as a string array; a plain string is
   // accepted and coerced in resolveIndexes. Only a string on a multi-select
   // question is a genuine shape error.

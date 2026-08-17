@@ -10,8 +10,7 @@ import type {
   AskUserToolDetails,
   NormalizedQuestion,
 } from "../types.ts";
-import { choiceMarker } from "../ui/form-render-primitives.ts";
-import { formatSelectedOptions } from "./answer-format.ts";
+import { choiceMarker, formatAnswerValue } from "./answer-format.ts";
 
 const COLLAPSED_ANSWER_LIMIT = 2;
 const DEFAULT_REVIEW_KEY = "Ctrl+O";
@@ -158,27 +157,13 @@ function buildAnswerLines(details: AskUserDetails, theme: Theme): string[] {
     const question = details.questions.find((q) => q.id === resp.questionId);
     if (!question) return [];
 
-    const summary = formatAnswerLine(resp);
+    const summary = formatAnswerValue(resp);
     return summary
       ? [
           `${theme.fg("success", "\u2713 ")}${theme.fg("accent", question.header)}: ${theme.fg("text", summary)}`,
         ]
       : [];
   });
-}
-
-function formatAnswerLine(resp: AskUserResponse): string | undefined {
-  if (!resp.answer.answered) return undefined;
-
-  if (resp.answer.kind === "choice") {
-    return formatSelectedOptions(resp.answer.options);
-  }
-
-  if (resp.answer.kind === "text" && resp.answer.value) {
-    return resp.answer.value;
-  }
-
-  return undefined;
 }
 
 function formatResponseLines(

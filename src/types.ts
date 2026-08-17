@@ -79,12 +79,10 @@ export interface AskUserDetails extends AskUserOutcome {
   questions: NormalizedQuestion[];
 }
 
-export interface AskUserErrorDetails {
-  kind: "error";
-  message: string;
-}
-
-export type AskUserToolDetails = AskUserDetails | AskUserErrorDetails;
+// The tool details are always user-facing AskUserDetails; failures are reported
+// via context.isError + result.content by pi, and the transcript renderer keys
+// off context.isError instead of a details-level error variant.
+export type AskUserToolDetails = AskUserDetails;
 
 // ── Internal interaction result: UI cancel/abort are NOT persisted ──
 export type AskUserInteractionResult = AskUserInteractionCancel | AskUserInteractionAbort;
@@ -95,6 +93,16 @@ export interface AskUserInteractionCancel {
 
 export interface AskUserInteractionAbort {
   kind: "abort";
+}
+
+/** Narrowing guard for internal interaction results, shared by the UI result relay and the ask-user executor. */
+export function isAskUserInteractionResult(value: unknown): value is AskUserInteractionResult {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "kind" in value &&
+    (value.kind === "cancel" || value.kind === "abort")
+  );
 }
 
 // ── Limits ─────────────────────────────────────────────────────────
@@ -116,7 +124,3 @@ export const ASK_USER_LIMITS = {
   maxOptionValueLength: 200,
   maxRecommendationLength: 200,
 } as const;
-
-// Note: AskUserErrorDetails above is exported via the public API (src/api.ts) but
-// nothing produces error-shaped details at runtime; pi marks errors via
-// context.isError on the renderer, so the render path never special-cases it.

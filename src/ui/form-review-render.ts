@@ -1,9 +1,9 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth } from "@earendil-works/pi-tui";
+import { choiceMarker } from "../render/answer-format.ts";
 import type { AskUserResponse, NormalizedQuestion } from "../types.ts";
 import type { FrameBody, RenderFormFrameArgs } from "./form-render.ts";
 import {
-  choiceMarker,
   pushWrappedWithPrefix,
   renderMiniBox,
   safeWidth,

@@ -22,12 +22,12 @@ describe("ActiveQuestionnaireLock", () => {
     expect(lock.isLocked()).toBe(false);
   });
 
-  it("release clears the lock only for the owning token", () => {
+  it("releaseIfOwner clears the lock only for the owning token", () => {
     const lock = new ActiveQuestionnaireLock();
     lock.acquire("tool-1");
-    lock.release("stale");
+    lock.releaseIfOwner("stale");
     expect(lock.isLocked()).toBe(true);
-    lock.release("tool-1");
+    lock.releaseIfOwner("tool-1");
     expect(lock.isLocked()).toBe(false);
   });
 
@@ -41,22 +41,22 @@ describe("ActiveQuestionnaireLock", () => {
     expect(lock.releaseIfOwner("tool-1")).toBe(false);
   });
 
-  it("a stale release cannot clear a newer form's lock", () => {
+  it("a stale releaseIfOwner cannot clear a newer form's lock", () => {
     const lock = new ActiveQuestionnaireLock();
     lock.acquire("tool-1");
     lock.acquire("tool-2");
-    lock.release("tool-1");
+    lock.releaseIfOwner("tool-1");
     expect(lock.isLocked()).toBe(false);
     lock.acquire("tool-2");
-    lock.release("tool-1");
+    lock.releaseIfOwner("tool-1");
     expect(lock.isLocked()).toBe(true);
     expect(lock.getOwner()).toBe("tool-2");
   });
 
-  it("can be reacquired after release", () => {
+  it("can be reacquired after releaseIfOwner", () => {
     const lock = new ActiveQuestionnaireLock();
     expect(lock.acquire("tool-1")).toBe(true);
-    lock.release("tool-1");
+    lock.releaseIfOwner("tool-1");
     expect(lock.acquire("tool-2")).toBe(true);
     expect(lock.getOwner()).toBe("tool-2");
   });
