@@ -35,9 +35,13 @@ export function renderAskUserCall(
   // may carry args that never validated against the schema.
   const ready = context.argsComplete !== false;
   const questions = Array.isArray(args?.questions) ? args.questions : [];
-  const title = ready ? normalizeDisplayText(args?.title ?? "") : "";
+  const title = ready && typeof args?.title === "string" ? normalizeDisplayText(args.title) : "";
   const headers = ready
-    ? questions.map((question) => normalizeDisplayText(question?.header ?? "")).filter(Boolean)
+    ? questions
+        .map((question) =>
+          typeof question?.header === "string" ? normalizeDisplayText(question.header) : "",
+        )
+        .filter(Boolean)
     : [];
   const label = title || `${headers.length} question${headers.length === 1 ? "" : "s"}`;
   const suffix = title && headers.length > 0 ? ` (${headers.join(", ")})` : headers.join(", ");
@@ -57,7 +61,7 @@ export function renderAskUserResult(
 
   if (options.isPartial) {
     return new Text(
-      theme.fg("dim", firstTextContent(result) ?? "Waiting for user response..."),
+      theme.fg("dim", sanitizedFirstTextContent(result) ?? "Waiting for user response..."),
       0,
       0,
     );
@@ -86,7 +90,14 @@ function isAskUserDetails(details: unknown): details is AskUserDetails {
 function formatErrorResult(
   result: Pick<AgentToolResult<AskUserToolDetails>, "content" | "details">,
 ): string {
-  return firstTextContent(result) ?? "ask_user failed.";
+  return sanitizedFirstTextContent(result) ?? "ask_user failed.";
+}
+
+function sanitizedFirstTextContent(
+  result: Pick<AgentToolResult<AskUserToolDetails>, "content" | "details">,
+): string | undefined {
+  const text = firstTextContent(result);
+  return text === undefined ? undefined : normalizeDisplayText(text);
 }
 
 function firstTextContent(

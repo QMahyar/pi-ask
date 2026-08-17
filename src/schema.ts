@@ -58,6 +58,7 @@ const QuestionSchema = Type.Object({
   ),
   recommendation: Type.Optional(
     Type.Array(Type.String(), {
+      maxItems: ASK_USER_LIMITS.maxChoiceOptions,
       description:
         "Recommended option value(s) for choice questions; a plain string is also accepted and normalized to a one-element array",
     }),

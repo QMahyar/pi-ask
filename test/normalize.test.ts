@@ -509,6 +509,18 @@ describe("normalizeDisplayText sanitization", () => {
     expect(normalizeDisplayText("\\u{1F600}")).toBe("\\u{1F600}");
     expect(normalizeDisplayText("a\\u{41}b")).toBe("a\\u{41}b");
   });
+
+  it("strips carriage returns (raw and \\u-escaped) but keeps LF and tab", () => {
+    expect(normalizeDisplayText("a\u000Db")).toBe("ab");
+    expect(normalizeDisplayText("a\u000D\u000Ab")).toBe("a\nb");
+    expect(normalizeDisplayText("a\\u000Db")).toBe("ab");
+    expect(normalizeDisplayText("a\nb\tc")).toBe("a\nb\tc");
+  });
+
+  it("strips LRM, RLM, and ALM bidi controls (raw and \\u-escaped)", () => {
+    expect(normalizeDisplayText("a\u200Eb\u200Fc\u061Cd")).toBe("abcd");
+    expect(normalizeDisplayText("a\\u200Eb\\u200Fc\\u061Cd")).toBe("abcd");
+  });
 });
 
 describe("question element and count validation", () => {
@@ -661,6 +673,15 @@ describe("recommendation shape validation", () => {
     ).toThrow(/duplicate recommendation value "a"/);
   });
 
+  it("rejects more than 12 recommendation entries", () => {
+    const entries = Array.from({ length: 13 }, (_, i) => `v${i}`);
+    expect(() =>
+      normalizeQuestionnaire({
+        questions: [{ ...choiceQuestion, recommendation: entries }],
+      }),
+    ).toThrow(/recommendation must have at most 12 entries \(got 13\)/);
+  });
+
   it("rejects non-string recommendation entries (e.g. numbers) with a clear error", () => {
     expect(() =>
       normalizeQuestionnaire({
@@ -698,6 +719,113 @@ describe("text question with choice-only fields", () => {
         questions: [{ type: "text", id: "t", header: "C", prompt: "P?", multi: true }] as never,
       }),
     ).toThrow(/text question "t" cannot have options or multi/);
+  });
+});
+
+describe("validation-error message sanitization (C1 regression)", () => {
+  function messageFor(params: AskUserParams): string {
+    try {
+      normalizeQuestionnaire(params);
+      throw new Error("expected AskUserValidationError");
+    } catch (error) {
+      if (error instanceof AskUserValidationError) return error.message;
+      throw error;
+    }
+  }
+
+  it("never leaks control characters from duplicate question ids", () => {
+    const evil = "a\u001b[31m";
+    const message = messageFor({
+      questions: [
+        { type: "text", id: evil, header: "A", prompt: "P1?" },
+        { type: "text", id: evil, header: "B", prompt: "P2?" },
+      ],
+    });
+    expect(message).toContain('Duplicate question id "a[31m"');
+    expect(message).not.toContain("\u001b");
+  });
+
+  it("never leaks control characters from an oversize question id", () => {
+    const evil = `${"x".repeat(99)}\u001b[31m`;
+    const message = messageFor({
+      questions: [{ type: "text", id: evil, header: "H", prompt: "P?" }],
+    });
+    expect(message).toContain('Question id "');
+    expect(message).toContain("exceeds 100 characters");
+    expect(message).not.toContain("\u001b");
+  });
+
+  it("never leaks control characters from duplicate option values", () => {
+    const evil = "a\u001b[31m";
+    const message = messageFor({
+      questions: [
+        {
+          type: "choice",
+          id: "c",
+          header: "C",
+          prompt: "P?",
+          options: [
+            { value: evil, label: "A" },
+            { value: evil, label: "A again" },
+          ],
+        },
+      ],
+    });
+    expect(message).toContain('duplicate option value "a[31m"');
+    expect(message).not.toContain("\u001b");
+  });
+
+  it("never leaks control characters from a recommendation mismatch or the allowed-values list", () => {
+    const message = messageFor({
+      questions: [
+        {
+          type: "choice",
+          id: "c",
+          header: "C",
+          prompt: "P?",
+          options: [
+            { value: "a\u001b]0;EVIL\u0007", label: "A" },
+            { value: "b", label: "B" },
+          ],
+          recommendation: ["nope\u001b[2J\u001b[H"],
+        },
+      ],
+    });
+    expect(message).toContain('recommendation value "nope[2J[H" does not match');
+    expect(message).toContain('Allowed values: ["a]0;EVIL", "b"]');
+    expect(message).not.toContain("\u001b");
+    expect(message).not.toContain("\u0007");
+  });
+
+  it("decodes and strips \\u-escaped control sequences in identifiers too", () => {
+    const message = messageFor({
+      questions: [
+        {
+          type: "choice",
+          id: "c",
+          header: "C",
+          prompt: "P?",
+          options: [
+            { value: "a", label: "A" },
+            { value: "b", label: "B" },
+          ],
+          recommendation: ["nope\\u001b"],
+        },
+      ],
+    });
+    expect(message).toContain('recommendation value "nope" does not match');
+    expect(message).not.toContain("\u001b");
+    expect(message).not.toContain("\\u001b");
+  });
+
+  it("never leaks control characters from text-question messages naming the id", () => {
+    const message = messageFor({
+      questions: [
+        { type: "text", id: "t\u001b[31m", header: "H", prompt: "P?", multi: true },
+      ] as never,
+    });
+    expect(message).toContain('text question "t[31m" cannot have options or multi');
+    expect(message).not.toContain("\u001b");
   });
 });
 

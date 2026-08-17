@@ -5,6 +5,7 @@
  * indicator, plus the audible terminal bell.
  */
 import path from "node:path";
+import { normalizeDisplayText } from "../normalize.ts";
 
 /** Unicode dot shown when waiting for user input. */
 export const WAITING_SYMBOL = "\u25CF";
@@ -27,7 +28,9 @@ export interface TitleTarget {
  *   formatTitle()                                     // "π"
  */
 export function formatTitle(sessionName?: string, cwd?: string): string {
-  const base = cwd ? path.basename(cwd) : undefined;
+  // A directory may legally contain ESC/control bytes on POSIX; sanitize the
+  // basename before it reaches the terminal title (OSC) write.
+  const base = cwd ? normalizeDisplayText(path.basename(cwd)) : undefined;
   if (sessionName && base) return `π - ${sessionName} - ${base}`;
   if (sessionName) return `π - ${sessionName}`;
   if (base) return `π - ${base}`;

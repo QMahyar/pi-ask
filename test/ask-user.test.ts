@@ -1,6 +1,6 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
-import {
+import askUserExtension, {
   type AskUserExecutionContext,
   canShowForm,
   executeAskUser,
@@ -8,6 +8,7 @@ import {
 } from "../src/ask-user.ts";
 import type { AskUserParams } from "../src/schema.ts";
 import { ActiveQuestionnaireLock } from "../src/session/lock.ts";
+import { ASK_USER_TOOL_NAME } from "../src/tool/guidance.ts";
 
 describe("shouldLabelDecision", () => {
   it("labels a successful ask_user result", () => {
@@ -226,6 +227,119 @@ describe("herdr:blocked lifecycle events", () => {
     ).rejects.toThrow(/requires an interactive TUI session/);
 
     expect(events).toEqual([]);
+  });
+});
+
+describe("session_shutdown lock release", () => {
+  type CapturedTool = {
+    name: string;
+    execute: (
+      toolCallId: string,
+      params: AskUserParams,
+      signal: AbortSignal | undefined,
+      onUpdate: unknown,
+      ctx: AskUserExecutionContext,
+    ) => Promise<unknown>;
+  };
+
+  function makeExtensionPi() {
+    const handlers = new Map<string, Array<(...args: unknown[]) => unknown>>();
+    const tools: CapturedTool[] = [];
+    const pi = {
+      on: (name: string, handler: (...args: unknown[]) => unknown) => {
+        const list = handlers.get(name) ?? [];
+        list.push(handler);
+        handlers.set(name, list);
+      },
+      registerTool: (desc: CapturedTool) => {
+        tools.push(desc);
+      },
+      registerEntryRenderer: vi.fn(),
+      appendEntry: vi.fn(),
+      setLabel: vi.fn(),
+      events: { emit: vi.fn() },
+    };
+    return { pi: pi as unknown as ExtensionAPI, handlers, tools };
+  }
+
+  function makeCtx(custom: unknown): AskUserExecutionContext {
+    return {
+      cwd: "/tmp",
+      hasUI: true,
+      mode: "tui",
+      abort: vi.fn(),
+      ui: {
+        custom,
+        notify: vi.fn(),
+        setWorkingVisible: vi.fn(),
+        setTitle: vi.fn(),
+      },
+    } as unknown as AskUserExecutionContext;
+  }
+
+  function makeParams(title?: string): AskUserParams {
+    return {
+      ...(title !== undefined ? { title } : {}),
+      questions: [
+        {
+          type: "choice",
+          id: "c1",
+          header: "Pick",
+          prompt: "Which one?",
+          options: [
+            { value: "a", label: "A" },
+            { value: "b", label: "B" },
+          ],
+        },
+      ],
+    };
+  }
+
+  it("releases a hung in-flight form lock so later sessions can call ask_user again", async () => {
+    const { pi, handlers, tools } = makeExtensionPi();
+    askUserExtension(pi);
+
+    const shutdownHandlers = handlers.get("session_shutdown") ?? [];
+    expect(shutdownHandlers.length).toBeGreaterThan(0);
+    const registeredTool = tools.find((t) => t.name === ASK_USER_TOOL_NAME);
+    expect(registeredTool).toBeDefined();
+    const tool = registeredTool as CapturedTool;
+
+    // First session: a form that never completes holds the lock.
+    let resolveGate!: (value: unknown) => void;
+    const gate = new Promise((resolve) => {
+      resolveGate = resolve;
+    });
+    const ctx1 = makeCtx(() => gate);
+    const run1 = tool.execute("tool-1", makeParams("Form 1"), undefined, undefined, ctx1);
+
+    // The lock is genuinely held while the form is in flight.
+    await expect(
+      tool.execute("blocked", makeParams("Blocked"), undefined, undefined, makeCtx(vi.fn())),
+    ).rejects.toThrow("another ask_user form is already in flight.");
+
+    // session_shutdown releases the in-flight lock.
+    for (const handler of shutdownHandlers) handler();
+
+    // A later session in the same process can now acquire the lock again.
+    const ctx2 = makeCtx(async () => ({
+      outcome: "submitted",
+      responses: [
+        {
+          questionId: "c1",
+          answer: {
+            kind: "choice",
+            answered: true,
+            options: [{ value: "a", label: "A", selected: true }],
+          },
+        },
+      ],
+    }));
+    await tool.execute("tool-2", makeParams("Form 2"), undefined, undefined, ctx2);
+
+    // The hung form from the first session can still settle (release is a no-op).
+    resolveGate({ kind: "cancel" });
+    await expect(run1).rejects.toThrow("The user interaction was cancelled.");
   });
 });
 

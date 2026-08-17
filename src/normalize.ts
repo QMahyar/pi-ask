@@ -135,7 +135,7 @@ function validateCommonFields(question: ExternalQuestion): void {
   if (typeof question.id !== "string") {
     throw new AskUserValidationError("Question id must be a non-empty string.");
   }
-  const id = question.id.trim();
+  const id = normalizeDisplayText(question.id);
   if (!id) throw new AskUserValidationError("Question id must be a non-empty string.");
   if (id.length > ASK_USER_LIMITS.maxQuestionIdLength) {
     throw new AskUserValidationError(
@@ -178,20 +178,21 @@ function normalizeChoice(question: ExternalChoiceQuestion): NormalizedChoiceQues
     }
   }
 
-  const options = normalizeOptions(question.id.trim(), question.options);
+  const id = normalizeDisplayText(question.id);
+  const options = normalizeOptions(id, question.options);
   const multi = question.multi ?? false;
 
-  validateRecommendationShape(question.id, question.recommendation, multi);
+  validateRecommendationShape(id, question.recommendation, multi);
 
   return {
-    id: question.id.trim(),
+    id,
     header: normalizeDisplayText(question.header),
     prompt: normalizeDisplayText(question.prompt),
     type: "choice",
     options,
     multi,
     recommendedIndexes: resolveIndexes({
-      questionId: question.id,
+      questionId: id,
       options,
       value: question.recommendation,
     }),
@@ -208,15 +209,17 @@ function normalizeText(question: ExternalTextQuestion): NormalizedTextQuestion {
     }
   }
 
+  const id = normalizeDisplayText(question.id);
+
   if (question.options !== undefined || question.multi !== undefined) {
     throw new AskUserValidationError(
-      `text question "${question.id}" cannot have options or multi — they are only valid on choice questions.`,
+      `text question "${id}" cannot have options or multi — they are only valid on choice questions.`,
     );
   }
 
   if (Array.isArray(question.recommendation)) {
     throw new AskUserValidationError(
-      `text question "${question.id}" recommendation must be a string, not an array.`,
+      `text question "${id}" recommendation must be a string, not an array.`,
     );
   }
 
@@ -224,26 +227,26 @@ function normalizeText(question: ExternalTextQuestion): NormalizedTextQuestion {
     const kind = typeof question.recommendation;
     const article = kind === "number" || kind === "boolean" ? "a " : kind === "object" ? "an " : "";
     throw new AskUserValidationError(
-      `text question "${question.id}" recommendation must be a string, not ${article}${kind}.`,
+      `text question "${id}" recommendation must be a string, not ${article}${kind}.`,
     );
   }
 
   const placeholder = trimOptional(question.placeholder);
   if (placeholder && placeholder.length > ASK_USER_LIMITS.maxPlaceholderLength) {
     throw new AskUserValidationError(
-      `Question "${question.id}" placeholder exceeds ${ASK_USER_LIMITS.maxPlaceholderLength} characters.`,
+      `Question "${id}" placeholder exceeds ${ASK_USER_LIMITS.maxPlaceholderLength} characters.`,
     );
   }
 
   const recommendation = trimOptional(question.recommendation);
   if (recommendation && recommendation.length > ASK_USER_LIMITS.maxRecommendationLength) {
     throw new AskUserValidationError(
-      `Question "${question.id}" recommendation exceeds ${ASK_USER_LIMITS.maxRecommendationLength} characters.`,
+      `Question "${id}" recommendation exceeds ${ASK_USER_LIMITS.maxRecommendationLength} characters.`,
     );
   }
 
   return {
-    id: question.id.trim(),
+    id,
     header: normalizeDisplayText(question.header),
     prompt: normalizeDisplayText(question.prompt),
     type: "text",
@@ -265,7 +268,7 @@ function normalizeOptions(
 
   const seen = new Set<string>();
   return (options ?? []).map((option) => {
-    const value = option.value.trim();
+    const value = normalizeDisplayText(option.value);
     const label = normalizeDisplayText(option.label);
     if (!value || !label) {
       throw new AskUserValidationError(
@@ -336,6 +339,11 @@ function resolveIndexes(args: {
   if (value === undefined) return [];
 
   const values: unknown[] = Array.isArray(value) ? value : [value];
+  if (values.length > ASK_USER_LIMITS.maxChoiceOptions) {
+    throw new AskUserValidationError(
+      `choice question "${questionId}" recommendation must have at most ${ASK_USER_LIMITS.maxChoiceOptions} entries (got ${values.length}).`,
+    );
+  }
   const seen = new Set<string>();
   return values.map((entry) => {
     if (typeof entry !== "string") {
@@ -343,7 +351,7 @@ function resolveIndexes(args: {
         `choice question "${questionId}" recommendation entries must be strings (got ${typeof entry}).`,
       );
     }
-    const trimmed = entry.trim();
+    const trimmed = normalizeDisplayText(entry);
     if (trimmed.length > ASK_USER_LIMITS.maxRecommendationLength) {
       throw new AskUserValidationError(
         `choice question "${questionId}" recommendation value "${trimmed}" exceeds ${ASK_USER_LIMITS.maxRecommendationLength} characters.`,
@@ -370,6 +378,11 @@ function resolveIndexes(args: {
  * Decodes JSON-style Unicode escapes that models sometimes emit literally in
  * display text, then strips control characters (C0 and C1) and bidi controls
  * before trimming.
+ *
+ * LF (`\u000A`) and tab (`\u0009`) are deliberately kept: LF enables wrapped
+ * multi-line text and tab is a harmless layout character. CR (`\u000D`) is
+ * stripped — a bare carriage return overwrites the current terminal line and
+ * enables same-line spoofing.
  */
 export function normalizeDisplayText(value: string): string {
   return value
@@ -378,7 +391,7 @@ export function normalizeDisplayText(value: string): string {
     )
     .replace(
       // biome-ignore lint/suspicious/noControlCharactersInRegex: deliberate control + bidi stripping
-      /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F\u0080-\u009F\u202A-\u202E\u2066-\u2069]/g,
+      /[\u0000-\u0008\u000B-\u000D\u000E-\u001F\u007F\u0080-\u009F\u061C\u200E\u200F\u202A-\u202E\u2066-\u2069]/g,
       "",
     )
     .replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, "\uFFFD")

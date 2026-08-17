@@ -44,6 +44,11 @@ export default function askUserExtension(pi: ExtensionAPI): void {
 
   pi.on("session_shutdown", () => {
     disposed = true;
+    // Release any in-flight form's lock: in SDK/multi-session hosts sharing one
+    // process, a form left hanging at shutdown would block ask_user for every
+    // later session. The owning execute's finally is a no-op for a stale release.
+    const owner = lock.getOwner();
+    if (owner !== undefined) lock.release(owner);
   });
 
   // Label ask_user tool results so they're visible and filterable in /tree.
