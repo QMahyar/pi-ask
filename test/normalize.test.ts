@@ -960,3 +960,128 @@ describe("formatSelectedOptions", () => {
     ).toBeUndefined();
   });
 });
+
+describe("exact-limit acceptance and over-long fields", () => {
+  it("accepts exactly 10 questions", () => {
+    const q = normalizeQuestionnaire({
+      questions: Array.from({ length: 10 }, (_, i) => ({
+        type: "text",
+        id: `t${i}`,
+        header: `H${i}`,
+        prompt: "P?",
+      })),
+    });
+    expect(q.questions).toHaveLength(10);
+  });
+
+  it("accepts exactly 12 options on a choice question", () => {
+    const q = normalizeQuestionnaire({
+      questions: [
+        {
+          type: "choice",
+          id: "c",
+          header: "C",
+          prompt: "P?",
+          options: Array.from({ length: 12 }, (_, i) => ({ value: `v${i}`, label: `L${i}` })),
+        },
+      ],
+    });
+    expect(q.questions[0]?.type).toBe("choice");
+  });
+
+  it("accepts a 100-character question id and a 60-character header", () => {
+    const q = normalizeQuestionnaire({
+      questions: [
+        {
+          type: "text",
+          id: "x".repeat(100),
+          header: "h".repeat(60),
+          prompt: "P?",
+        },
+      ],
+    });
+    expect(q.questions[0]?.id).toHaveLength(100);
+    expect(q.questions[0]?.header).toHaveLength(60);
+  });
+
+  it("accepts the maximum title, intro, prompt, and placeholder lengths", () => {
+    const q = normalizeQuestionnaire({
+      title: "t".repeat(120),
+      intro: "i".repeat(4000),
+      questions: [
+        {
+          type: "text",
+          id: "t",
+          header: "H",
+          prompt: "p".repeat(4000),
+          placeholder: "l".repeat(200),
+        },
+      ],
+    });
+    expect(q.title).toHaveLength(120);
+    expect(q.intro).toHaveLength(4000);
+    expect(q.questions[0]?.type).toBe("text");
+  });
+
+  it("rejects an over-long title (121 chars)", () => {
+    expect(() =>
+      normalizeQuestionnaire({
+        title: "t".repeat(121),
+        questions: [{ type: "text", id: "t", header: "H", prompt: "P?" }],
+      }),
+    ).toThrow("title exceeds 120 characters.");
+  });
+
+  it("rejects an over-long intro (4001 chars)", () => {
+    expect(() =>
+      normalizeQuestionnaire({
+        intro: "i".repeat(4001),
+        questions: [{ type: "text", id: "t", header: "H", prompt: "P?" }],
+      }),
+    ).toThrow("intro exceeds 4000 characters.");
+  });
+
+  it("rejects an over-long header (61 chars)", () => {
+    expect(() =>
+      normalizeQuestionnaire({
+        questions: [{ type: "text", id: "t", header: "h".repeat(61), prompt: "P?" }],
+      }),
+    ).toThrow('Question "t" header exceeds 60 characters.');
+  });
+
+  it("rejects an over-long prompt (4001 chars)", () => {
+    expect(() =>
+      normalizeQuestionnaire({
+        questions: [{ type: "text", id: "t", header: "H", prompt: "p".repeat(4001) }],
+      }),
+    ).toThrow('Question "t" prompt exceeds 4000 characters.');
+  });
+
+  it("rejects an over-long placeholder (201 chars)", () => {
+    expect(() =>
+      normalizeQuestionnaire({
+        questions: [
+          { type: "text", id: "t", header: "H", prompt: "P?", placeholder: "l".repeat(201) },
+        ],
+      }),
+    ).toThrow('Question "t" placeholder exceeds 200 characters.');
+  });
+
+  it("accepts a 200-character option value and label at the boundary", () => {
+    const q = normalizeQuestionnaire({
+      questions: [
+        {
+          type: "choice",
+          id: "c",
+          header: "C",
+          prompt: "P?",
+          options: [
+            { value: "v".repeat(200), label: "l".repeat(200) },
+            { value: "w", label: "W" },
+          ],
+        },
+      ],
+    });
+    expect(q.questions[0]?.type).toBe("choice");
+  });
+});

@@ -311,6 +311,143 @@ describe("unknown-key diagnostics", () => {
   });
 });
 
+describe("malformed prompt-surface shapes", () => {
+  it("flags a non-object tools section", () => {
+    for (const bad of ["nope", 42, []]) {
+      writeJson(globalConfigFile, { "ask-user": { tools: bad } });
+      const { surface, diagnostics } = resolve(fixtureRoot, true);
+      expect(surface.description).toBe("default description");
+      expect(
+        findDiagnostic(diagnostics, "invalidPromptSurfaceConfig", "tools must be an object"),
+      ).toBeDefined();
+    }
+  });
+
+  it("flags a non-object tool entry", () => {
+    writeJson(globalConfigFile, { "ask-user": { tools: { ask_user: "junk" } } });
+    const { surface, diagnostics } = resolve(fixtureRoot, true);
+    expect(surface.description).toBe("default description");
+    expect(
+      findDiagnostic(diagnostics, "invalidPromptSurfaceConfig", "tools.ask_user must be an object"),
+    ).toBeDefined();
+  });
+
+  it("flags a non-object promptSurface field", () => {
+    for (const bad of ["nope", 42, ["x"]]) {
+      writeJson(globalConfigFile, {
+        "ask-user": { tools: { ask_user: { promptSurface: bad } } },
+      });
+      const { surface, diagnostics } = resolve(fixtureRoot, true);
+      expect(surface.description).toBe("default description");
+      expect(
+        findDiagnostic(
+          diagnostics,
+          "invalidPromptSurfaceConfig",
+          "tools.ask_user.promptSurface must be an object",
+        ),
+      ).toBeDefined();
+    }
+  });
+
+  it("flags a $reset that is not an array", () => {
+    writeJson(globalConfigFile, {
+      "ask-user": { tools: { ask_user: { promptSurface: { $reset: "description" } } } },
+    });
+    const { surface, diagnostics } = resolve(fixtureRoot, true);
+    expect(surface.description).toBe("default description");
+    const flagged = findDiagnostic(diagnostics, "invalidPromptSurfaceField", "$reset");
+    expect(flagged).toBeDefined();
+    expect(flagged?.message).toContain("must be an array");
+  });
+
+  it("flags unsupported entries inside $reset while applying the rest", () => {
+    writeJson(globalConfigFile, {
+      "ask-user": {
+        tools: {
+          ask_user: {
+            promptSurface: {
+              $reset: ["description", "bogus", 42],
+              description: "applied override",
+            },
+          },
+        },
+      },
+    });
+    const { surface, diagnostics } = resolve(fixtureRoot, true);
+    // $reset restores the field, then the explicit override re-applies.
+    expect(surface.description).toBe("applied override");
+    const flagged = findDiagnostic(diagnostics, "invalidPromptSurfaceField", "$reset");
+    expect(flagged).toBeDefined();
+    expect(flagged?.message).toContain("contains unsupported field");
+  });
+
+  it("flags non-string description and promptSnippet values", () => {
+    for (const field of ["description", "promptSnippet"]) {
+      for (const bad of ["", 42, true, null]) {
+        writeJson(globalConfigFile, {
+          "ask-user": { tools: { ask_user: { promptSurface: { [field]: bad } } } },
+        });
+        const { surface, diagnostics } = resolve(fixtureRoot, true);
+        expect(surface[field as "description" | "promptSnippet"]).toBe(
+          defaults[field as "description" | "promptSnippet"],
+        );
+        const flagged = findDiagnostic(diagnostics, "invalidPromptSurfaceField", field);
+        expect(flagged).toBeDefined();
+        expect(flagged?.message).toContain("must be a non-empty string");
+      }
+    }
+  });
+
+  it("flags non-string-array promptGuidelines values", () => {
+    for (const bad of ["nope", ["ok", 7], [null], {}]) {
+      writeJson(globalConfigFile, {
+        "ask-user": { tools: { ask_user: { promptSurface: { promptGuidelines: bad } } } },
+      });
+      const { surface, diagnostics } = resolve(fixtureRoot, true);
+      expect(surface.promptGuidelines).toEqual(["default guideline"]);
+      const flagged = findDiagnostic(diagnostics, "invalidPromptSurfaceField", "promptGuidelines");
+      expect(flagged).toBeDefined();
+      expect(flagged?.message).toContain("must be an array of strings");
+    }
+  });
+
+  it("tolerates a non-object section entry at the config root", () => {
+    writeJson(globalConfigFile, { "ask-user": 42 });
+    const { surface, diagnostics } = resolve(fixtureRoot, true);
+    expect(surface.description).toBe("default description");
+    expect(diagnostics).toHaveLength(0);
+  });
+});
+
+describe("readJsonFile root and error-code fallbacks", () => {
+  it("warns when the config root is not an object (array or scalar)", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    for (const root of [[1, 2], "str", 42, null]) {
+      writeJson(globalConfigFile, root);
+      expect(readJsonFile(globalConfigFile)).toBeNull();
+    }
+    expect(warn).toHaveBeenCalledTimes(4);
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining("Config file root is not an object"),
+    );
+  });
+
+  it("falls back to 'unknown error' when a read error carries no code", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.resetModules();
+    vi.doMock("node:fs", () => ({
+      readFileSync: () => {
+        throw new Error("mystery failure");
+      },
+    }));
+    const { readJsonFile: mockedReadJsonFile } = await import("../src/core/config/config.ts");
+    expect(mockedReadJsonFile(globalConfigFile)).toBeNull();
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining("[pi-ask-core] Failed to read config file (unknown error)"),
+    );
+  });
+});
+
 describe("notifyToolPromptSurfaceDiagnostics", () => {
   it("dedups per session and resets for a new session", () => {
     const notify = vi.fn();
