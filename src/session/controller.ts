@@ -33,9 +33,25 @@ type TextState = {
 
 type QuestionState = ChoiceState | TextState;
 
+/** Which base screen the interaction is on: a question or the review screen. */
+export type AskUserScreen = "question" | "review";
+
+/**
+ * The comment editor overlaying the base screen. Only semantic identity lives
+ * here; display strings and cursor restore positions are view concerns.
+ */
+export type CommentOverlay =
+  | { kind: "form" }
+  | { kind: "question"; questionId: string }
+  | { kind: "option"; questionId: string; optionValue: string };
+
 export class AskUserController {
   private readonly states: QuestionState[];
   private index = 0;
+  private screen: AskUserScreen = "question";
+  private commentOverlay: CommentOverlay | undefined;
+  /** The next advance() returns to review instead of the following question. */
+  private returnToReview = false;
   private terminal: boolean = false;
   private terminalResult: AskUserInteractionResult | undefined;
   private formComment: string | undefined;
@@ -61,6 +77,14 @@ export class AskUserController {
     return this.terminal;
   }
 
+  get currentScreen(): AskUserScreen {
+    return this.screen;
+  }
+
+  get overlay(): CommentOverlay | undefined {
+    return this.commentOverlay;
+  }
+
   goNext(): boolean {
     if (this.terminal) return false;
     if (this.index >= this.questionnaire.questions.length - 1) return false;
@@ -70,6 +94,9 @@ export class AskUserController {
 
   goBack(): boolean {
     if (this.terminal) return false;
+    // Backward navigation abandons a pending return-to-review jump, even when
+    // the index itself cannot move.
+    this.returnToReview = false;
     if (this.index === 0) return false;
     this.index -= 1;
     return true;
@@ -80,6 +107,61 @@ export class AskUserController {
     if (index < 0 || index >= this.questionnaire.questions.length) return false;
     this.index = index;
     return true;
+  }
+
+  // ── Screen transitions ──────────────────────────────────────────
+
+  /**
+   * Advance past the current question: to the next question, or into review
+   * from the last one (and when returning from a review jump). Returns the
+   * screen the interaction is on afterwards.
+   */
+  advance(): AskUserScreen {
+    if (this.terminal || this.commentOverlay || this.screen === "review") return this.screen;
+    if (this.returnToReview || !this.goNext()) {
+      this.returnToReview = false;
+      this.screen = "review";
+    }
+    return this.screen;
+  }
+
+  /**
+   * Jump to a question (the review screen's edit entry). `returnToReview`
+   * routes the next advance() back to review instead of the following
+   * question.
+   */
+  openQuestion(index: number, opts: { returnToReview?: boolean } = {}): boolean {
+    if (this.terminal || this.commentOverlay) return false;
+    if (!this.goTo(index)) return false;
+    this.returnToReview = opts.returnToReview ?? false;
+    this.screen = "question";
+    return true;
+  }
+
+  // ── Comment overlay transitions ─────────────────────────────────
+
+  /** Form comments are edited from review; opening one lands there on close. */
+  openFormComment(): void {
+    if (this.terminal) return;
+    this.screen = "review";
+    this.commentOverlay = { kind: "form" };
+  }
+
+  openQuestionComment(questionId: string): void {
+    if (this.terminal) return;
+    this.commentOverlay = { kind: "question", questionId };
+  }
+
+  openOptionComment(questionId: string, optionValue: string): void {
+    if (this.terminal) return;
+    this.commentOverlay = { kind: "option", questionId, optionValue };
+  }
+
+  /** Close the active overlay, returning it (undefined when none was open). */
+  closeOverlay(): CommentOverlay | undefined {
+    const overlay = this.commentOverlay;
+    this.commentOverlay = undefined;
+    return overlay;
   }
 
   // ── Direct state queries ────────────────────────────────────────

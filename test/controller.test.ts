@@ -462,3 +462,91 @@ describe("AskUserController", () => {
     });
   });
 });
+
+describe("screen and overlay transitions", () => {
+  it("advance moves through questions and lands on review from the last one", () => {
+    const controller = makeController([choice(), text()]);
+    expect(controller.currentScreen).toBe("question");
+    expect(controller.advance()).toBe("question");
+    expect(controller.advance()).toBe("review");
+  });
+
+  it("advance is a no-op on review and while an overlay is open", () => {
+    const controller = makeController([choice(), text()]);
+    controller.advance();
+    controller.advance();
+    controller.openFormComment();
+    expect(controller.advance()).toBe("review");
+    controller.closeOverlay();
+    expect(controller.advance()).toBe("review");
+  });
+
+  it("advance is a no-op once terminal", () => {
+    const controller = makeController([choice(), text()]);
+    controller.cancel();
+    expect(controller.advance()).toBe("question");
+  });
+
+  it("openQuestion routes the next advance back to review with returnToReview", () => {
+    const controller = makeController([choice(), text()]);
+    controller.advance();
+    controller.advance();
+    expect(controller.openQuestion(0, { returnToReview: true })).toBe(true);
+    expect(controller.currentScreen).toBe("question");
+    expect(controller.advance()).toBe("review");
+  });
+
+  it("openQuestion without returnToReview advances to the next question", () => {
+    const controller = makeController([choice(), text()]);
+    controller.advance();
+    controller.advance();
+    controller.openQuestion(0);
+    expect(controller.advance()).toBe("question");
+  });
+
+  it("openQuestion rejects out-of-range indexes and open overlays", () => {
+    const controller = makeController([choice(), text()]);
+    expect(controller.openQuestion(9)).toBe(false);
+    controller.openQuestionComment("c1");
+    expect(controller.openQuestion(0)).toBe(false);
+  });
+
+  it("goBack abandons a pending return-to-review jump", () => {
+    const controller = makeController([choice(), text()]);
+    controller.advance();
+    controller.advance();
+    controller.openQuestion(1, { returnToReview: true });
+    controller.goBack();
+    expect(controller.advance()).toBe("question");
+  });
+
+  it("comment overlays carry their semantic target and close reports it", () => {
+    const controller = makeController([choice(), text()]);
+    controller.openFormComment();
+    expect(controller.overlay).toEqual({ kind: "form" });
+    expect(controller.currentScreen).toBe("review");
+    expect(controller.closeOverlay()).toEqual({ kind: "form" });
+
+    controller.openQuestionComment("t1");
+    expect(controller.overlay).toEqual({ kind: "question", questionId: "t1" });
+
+    controller.openOptionComment("c1", "b");
+    expect(controller.overlay).toEqual({ kind: "option", questionId: "c1", optionValue: "b" });
+    expect(controller.closeOverlay()).toEqual({
+      kind: "option",
+      questionId: "c1",
+      optionValue: "b",
+    });
+    expect(controller.overlay).toBeUndefined();
+    expect(controller.closeOverlay()).toBeUndefined();
+  });
+
+  it("overlay transitions are refused once terminal", () => {
+    const controller = makeController([choice(), text()]);
+    controller.cancel();
+    controller.openFormComment();
+    controller.openQuestionComment("c1");
+    controller.openOptionComment("c1", "a");
+    expect(controller.overlay).toBeUndefined();
+  });
+});
