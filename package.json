@@ -1,6 +1,6 @@
 {
   "name": "@qmahyar/pi-ask",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "description": "Structured choice and text forms for agent-user decisions. ask_user extension for the pi coding agent.",
   "license": "MIT",
   "author": "QMahyar",
