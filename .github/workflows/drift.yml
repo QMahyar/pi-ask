@@ -1,0 +1,28 @@
+# Upstream drift canary: pi (@earendil-works/pi-coding-agent, @earendil-works/pi-tui)
+# is pre-1.0 and moves fast while our devDependencies pin ^0.84.x. This job installs
+# the LATEST upstream packages over the pinned ones and runs the usual checks, so
+# breaking upstream API changes surface here (weekly) instead of surprising us on
+# the next dependency bump.
+name: Drift
+on:
+  schedule:
+    - cron: "0 6 * * 1" # Monday 06:00 UTC
+  workflow_dispatch:
+jobs:
+  upstream-latest:
+    # Scheduled runs are skipped on forks; manual dispatch always runs.
+    if: github.event_name == 'workflow_dispatch' || github.repository == 'QMahyar/pi-ask'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      # npm install (not npm ci) so the step below is free to overwrite the pinned
+      # versions; this only mutates the ephemeral CI workspace, not the lockfile.
+      - run: npm install
+      - run: npm install @earendil-works/pi-coding-agent@latest @earendil-works/pi-tui@latest --save-dev
+      - run: npm run typecheck
+      - run: npm test

@@ -63,7 +63,7 @@ When the host TUI exposes a custom editor component, text answers use it; otherw
 
 ### Config
 
-Optional prompt-surface overrides live in pi config under an `ask-user` section:
+Optional prompt-surface overrides and behavior settings live in pi config under an `ask-user` section:
 
 - Global: `~/.pi/agent/pi-ask/config.json`
 - Project (trust-gated): `.pi/pi-ask/config.json`
@@ -89,11 +89,37 @@ Additional prompt-surface fields:
 - `promptGuidelines` — full-replace override of the guideline list; `prependPromptGuidelines` / `appendPromptGuidelines` insert string arrays before / after it
 - `description` / `promptSnippet` — direct overrides of the tool description and prompt snippet
 
+Behavior settings sit at the section level next to `tools` and follow the same resolution order (defaults ← global ← trusted project):
+
+- `bell` — sound the terminal bell (BEL) when a form opens. Default `true`.
+
+```json
+{
+  "ask-user": {
+    "bell": false
+  }
+}
+```
+
 Unknown keys and invalid values at every level (`ask-user` section, `tools`, tool name, `promptSurface`) are diagnosed with a warning instead of silently ignored — a typo'd field never silently no-ops. Config changes take effect after `/reload` or in a new session.
 
 ### Events
 
-The extension emits `pi-ask:ask-user:start` and `pi-ask:ask-user:end` on `pi.events` (payload `{ source: "pi-ask" }`), bracketing each form run — useful for consumers to track decision points.
+The extension emits lifecycle events on `pi.events`, pi's inter-extension event bus — other extensions can listen with `pi.events.on(...)`. Each form run is bracketed by:
+
+- `pi-ask:ask-user:start` — `{ source: "pi-ask" }`; emitted when a form opens.
+- `pi-ask:ask-user:end` — `{ source: "pi-ask" }`; emitted when the form run ends.
+- `herdr:blocked` — `{ active: true, label: string }` when the form goes on screen (`label` is the form title, or `"ask_user"` when untitled); `{ active: false }` when it ends.
+
+`pi-ask:ask-user:end` and `herdr:blocked { active: false }` are both emitted from a `finally` block, so they fire on every end path — submit, cancel, abort, and error. Listeners can rely on them for cleanup.
+
+```ts
+pi.events.on("pi-ask:ask-user:start", (payload: { source: "pi-ask" }) => {
+  // a decision form just opened
+});
+```
+
+The `herdr:blocked` pair integrates with herdr, an external agent-supervisor tool: while a form is active, herdr reports the session as blocked (with the label as the message) and other agents can wait on it (`--until blocked`). This integration is optional — it is only meaningful when herdr is installed; otherwise the events are simply ignored.
 
 ### API
 
