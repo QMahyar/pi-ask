@@ -27,7 +27,7 @@ export function buildResult(
     ...(questionnaire.intro ? { intro: questionnaire.intro } : {}),
     questions: questionnaire.questions,
     outcome: outcome.outcome,
-    comment: outcome.comment,
+    ...(outcome.comment ? { comment: outcome.comment } : {}),
     responses: outcome.responses,
   };
 

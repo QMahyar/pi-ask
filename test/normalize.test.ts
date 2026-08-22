@@ -370,14 +370,28 @@ describe("length limits", () => {
     );
   });
 
-  it("rejects an array recommendation on a text question", () => {
+  it("unwraps a one-element array recommendation on a text question", () => {
+    const normalized = normalizeQuestionnaire({
+      questions: [{ type: "text", id: "t", header: "C", prompt: "P?", recommendation: ["x"] }],
+    });
+    expect(normalized.questions[0]).toMatchObject({ type: "text", recommendation: "x" });
+  });
+
+  it("rejects a multi-entry or non-string-entry array recommendation on a text question", () => {
     expect(() =>
       normalizeQuestionnaire({
         questions: [
-          { type: "text", id: "t", header: "C", prompt: "P?", recommendation: ["x"] },
+          { type: "text", id: "t", header: "C", prompt: "P?", recommendation: ["x", "y"] },
         ] as never,
       }),
-    ).toThrow(/text question "t" recommendation must be a string, not an array/);
+    ).toThrow(/text question "t" recommendation must be a single string, not an array/);
+    expect(() =>
+      normalizeQuestionnaire({
+        questions: [
+          { type: "text", id: "t", header: "C", prompt: "P?", recommendation: [7] },
+        ] as never,
+      }),
+    ).toThrow(/text question "t" recommendation must be a single string, not an array/);
   });
 
   it("rejects a non-string recommendation on a text question", () => {

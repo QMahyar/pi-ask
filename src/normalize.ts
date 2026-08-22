@@ -229,18 +229,26 @@ function normalizeText(question: ExternalTextQuestion): NormalizedTextQuestion {
     );
   }
 
+  // The schema declares recommendation as a string array (Google
+  // compatibility), so a text recommendation arrives from the tool path as a
+  // one-element array; a plain string is also accepted (programmatic API).
+  let recommendationInput: string | undefined;
   if (Array.isArray(question.recommendation)) {
-    throw new AskUserValidationError(
-      `text question "${id}" recommendation must be a string, not an array.`,
-    );
-  }
-
-  if (question.recommendation !== undefined && typeof question.recommendation !== "string") {
+    const [first] = question.recommendation;
+    if (question.recommendation.length !== 1 || typeof first !== "string") {
+      throw new AskUserValidationError(
+        `text question "${id}" recommendation must be a single string, not an array.`,
+      );
+    }
+    recommendationInput = first;
+  } else if (question.recommendation !== undefined && typeof question.recommendation !== "string") {
     const kind = typeof question.recommendation;
     const article = kind === "number" || kind === "boolean" ? "a " : kind === "object" ? "an " : "";
     throw new AskUserValidationError(
       `text question "${id}" recommendation must be a string, not ${article}${kind}.`,
     );
+  } else {
+    recommendationInput = question.recommendation;
   }
 
   const placeholder = trimOptional(question.placeholder);
@@ -250,7 +258,7 @@ function normalizeText(question: ExternalTextQuestion): NormalizedTextQuestion {
     );
   }
 
-  const recommendation = trimOptional(question.recommendation);
+  const recommendation = trimOptional(recommendationInput);
   if (recommendation && recommendation.length > ASK_USER_LIMITS.maxRecommendationLength) {
     throw new AskUserValidationError(
       `Question "${id}" recommendation exceeds ${ASK_USER_LIMITS.maxRecommendationLength} characters.`,

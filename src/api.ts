@@ -1,5 +1,7 @@
+export type { AskUserBehavior } from "./core/config/prompt-surface.ts";
 export { AskUserValidationError, normalizeQuestionnaire } from "./normalize.ts";
-export { AskUserParamsSchema } from "./schema.ts";
+export type { AskUserToolArgs } from "./schema.ts";
+export { AskUserParamsSchema, prepareAskUserArguments } from "./schema.ts";
 export { AskUserController } from "./session/controller.ts";
 export type {
   AskUserDetails,

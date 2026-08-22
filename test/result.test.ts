@@ -78,6 +78,11 @@ describe("buildResult — submitted", () => {
     expect(firstText(result)).toContain("Form comment: Overall note");
   });
 
+  it("omits the comment key from details when there is no form comment", () => {
+    const result = buildResult(questionnaire([choiceQuestion()]), submittedOutcome());
+    expect("comment" in (result.details ?? {})).toBe(false);
+  });
+
   it("falls back to 'User submitted the form.' when there is nothing to summarize", () => {
     const result = buildResult(
       questionnaire([choiceQuestion()]),

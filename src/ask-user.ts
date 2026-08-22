@@ -1,7 +1,9 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Box, Text } from "@earendil-works/pi-tui";
 import {
+  type AskUserBehavior,
   notifyToolPromptSurfaceDiagnostics,
+  resolveAskUserBehavior,
   resolveToolPromptSurface,
 } from "./core/config/prompt-surface.ts";
 import { createSessionNameTracker } from "./core/session-utils.ts";
@@ -9,9 +11,10 @@ import { formatTitle, signalWaiting } from "./core/terminal";
 import { AskUserValidationError, normalizeQuestionnaire } from "./normalize.ts";
 import { type AskUserToolResult, buildResult } from "./render/result.ts";
 import { renderAskUserCall, renderAskUserResult } from "./render/transcript.ts";
-import { type AskUserParams, AskUserParamsSchema } from "./schema.ts";
+import { type AskUserParams, AskUserParamsSchema, prepareAskUserArguments } from "./schema.ts";
 import { ActiveQuestionnaireLock } from "./session/lock.ts";
 import {
+  ASK_USER_BEHAVIOR_DEFAULTS,
   ASK_USER_PROMPT_SURFACE_DEFAULTS,
   ASK_USER_TOOL_LABEL,
   ASK_USER_TOOL_NAME,
@@ -51,48 +54,44 @@ export default function askUserExtension(pi: ExtensionAPI): void {
   });
 
   // Label ask_user tool results so they're visible and filterable in /tree.
-  // Use a non-awaited setTimeout: the agent awaits our handler's return before
-  // it appends the tool result to the session, so we must let the handler resolve
-  // first and label from a deferred callback.
+  // The agent awaits our handler's return before it appends the tool result
+  // to the session, so labeling must run from a deferred callback.
   pi.on("tool_result", (event, ctx) => {
     if (!shouldLabelDecision(event.toolName, event.isError)) return;
-    const toolCallId = event.toolCallId;
-    setTimeout(() => {
-      if (disposed) return;
-      try {
-        const entries = ctx.sessionManager.getEntries();
-        const entry = [...entries]
-          .reverse()
-          .find(
-            (e) =>
-              e.type === "message" &&
-              e.message.role === "toolResult" &&
-              e.message.toolCallId === toolCallId,
-          );
-        if (entry) {
-          pi.setLabel(entry.id, "decision");
-        }
-      } catch {
-        // Labeling is best-effort; never throw into the timer.
-      }
-    }, 0);
+    scheduleDecisionLabel(pi, ctx, event.toolCallId, () => disposed);
   });
 
   // Factory-time: register with package defaults.
-  registerAskUserTool(pi, lock, ASK_USER_PROMPT_SURFACE_DEFAULTS, getSessionName);
+  registerAskUserTool(
+    pi,
+    lock,
+    ASK_USER_PROMPT_SURFACE_DEFAULTS,
+    ASK_USER_BEHAVIOR_DEFAULTS,
+    getSessionName,
+  );
   registerAskUserEntryRenderer(pi);
 
-  // session_start: re-register with resolved prompt surface (global + trusted project config).
+  // session_start: re-register with resolved prompt surface and behavior
+  // (global + trusted project config).
   pi.on("session_start", async (_event, ctx) => {
+    // SDK hosts can cycle shutdown→start on one extension instance; labeling
+    // disabled by a previous session_shutdown must come back with the session.
+    disposed = false;
     const { surface, diagnostics } = resolveToolPromptSurface({
       section: "ask-user",
       toolName: ASK_USER_TOOL_NAME,
       defaults: ASK_USER_PROMPT_SURFACE_DEFAULTS,
       ctx,
     });
+    const { behavior, diagnostics: behaviorDiagnostics } = resolveAskUserBehavior({
+      section: "ask-user",
+      toolName: ASK_USER_TOOL_NAME,
+      defaults: ASK_USER_BEHAVIOR_DEFAULTS,
+      ctx,
+    });
 
-    registerAskUserTool(pi, lock, surface, getSessionName);
-    notifyToolPromptSurfaceDiagnostics(ctx, diagnostics);
+    registerAskUserTool(pi, lock, surface, behavior, getSessionName);
+    notifyToolPromptSurfaceDiagnostics(ctx, [...diagnostics, ...behaviorDiagnostics]);
   });
 }
 
@@ -100,6 +99,7 @@ function registerAskUserTool(
   pi: ExtensionAPI,
   lock: ActiveQuestionnaireLock,
   surface: typeof ASK_USER_PROMPT_SURFACE_DEFAULTS,
+  behavior: AskUserBehavior,
   getSessionName: () => string | undefined,
 ): void {
   pi.registerTool<typeof AskUserParamsSchema, AskUserToolDetails>({
@@ -109,9 +109,10 @@ function registerAskUserTool(
     promptSnippet: surface.promptSnippet,
     promptGuidelines: surface.promptGuidelines,
     parameters: AskUserParamsSchema,
+    prepareArguments: prepareAskUserArguments,
     executionMode: "sequential",
     async execute(toolCallId, params, signal, _onUpdate, ctx) {
-      return executeAskUser(params, signal, ctx, lock, pi, getSessionName(), toolCallId);
+      return executeAskUser(params, signal, ctx, lock, pi, getSessionName(), toolCallId, behavior);
     },
     renderCall: (args, theme) => renderAskUserCall(args, theme),
     renderResult: (result, options, theme, context) =>
@@ -155,6 +156,7 @@ export async function executeAskUser(
   pi: ExtensionAPI,
   sessionName?: string,
   toolCallId?: string,
+  behavior: AskUserBehavior = ASK_USER_BEHAVIOR_DEFAULTS,
 ): Promise<AskUserToolResult> {
   let questionnaire: NormalizedQuestionnaire;
   try {
@@ -182,7 +184,7 @@ export async function executeAskUser(
   try {
     signal?.addEventListener("abort", onAbort);
 
-    signalAttention(ctx);
+    signalAttention(ctx, behavior);
     pi.events.emit("pi-ask:ask-user:start", { source: "pi-ask" });
     // herdr lifecycle integration: mark the agent blocked while the form is on
     // screen so herdr reports "blocked" (with the form title as message) and
@@ -244,6 +246,51 @@ export function shouldLabelDecision(toolName: string, isError: boolean): boolean
   return toolName === ASK_USER_TOOL_NAME && !isError;
 }
 
+// The session append that follows our handler can itself await I/O, so a
+// single deferred tick can lose the race with the timer queue. Poll a bounded
+// number of times before giving up; labeling stays best-effort.
+const DECISION_LABEL_RETRY_DELAYS_MS: readonly number[] = [16, 50];
+
+function scheduleDecisionLabel(
+  pi: ExtensionAPI,
+  ctx: ExtensionContext,
+  toolCallId: string,
+  isDisposed: () => boolean,
+): void {
+  const findEntryId = (): string | undefined => {
+    const entries = ctx.sessionManager.getEntries();
+    const entry = [...entries]
+      .reverse()
+      .find(
+        (e) =>
+          e.type === "message" &&
+          e.message.role === "toolResult" &&
+          e.message.toolCallId === toolCallId,
+      );
+    return entry?.id;
+  };
+
+  let retryIndex = 0;
+  const attempt = () => {
+    if (isDisposed()) return;
+    try {
+      const entryId = findEntryId();
+      if (entryId !== undefined) {
+        pi.setLabel(entryId, "decision");
+        return;
+      }
+      const delay = DECISION_LABEL_RETRY_DELAYS_MS[retryIndex];
+      if (delay !== undefined) {
+        retryIndex += 1;
+        setTimeout(attempt, delay);
+      }
+    } catch {
+      // Labeling is best-effort; never throw into the timer.
+    }
+  };
+  setTimeout(attempt, 0);
+}
+
 /**
  * Whether an interactive ask_user form can be shown: requires a UI and the TUI
  * mode. Every other mode (print, json, rpc, and SDK sessions) is headless —
@@ -255,8 +302,8 @@ export function canShowForm(hasUI: boolean, mode: string): boolean {
 
 let nextLockOwner = 0;
 
-function signalAttention(ctx: AskUserExecutionContext): void {
-  signalWaiting(ctx, "pi — waiting for your input");
+function signalAttention(ctx: AskUserExecutionContext, behavior: AskUserBehavior): void {
+  signalWaiting(ctx, "pi — waiting for your input", { bell: behavior.bell });
 }
 
 function restoreTerminalTitle(ctx: AskUserExecutionContext, sessionName: string | undefined): void {

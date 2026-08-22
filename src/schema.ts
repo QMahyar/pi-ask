@@ -4,11 +4,12 @@
 // Type.Literal anywhere. The question-kind discriminator is a plain string
 // `enum` (the installed typebox emits a JSON-Schema `enum`, which Google
 // supports; Type.Union/Type.Literal emit `anyOf`/`const`, which it does not —
-// see extensions.md:2002). `recommendation` is declared as a string array;
-// normalize coerces a plain string into `[string]` so the public API keeps
-// accepting both shapes.
+// see extensions.md:2002). `recommendation` is declared as a string array; a
+// plain string is coerced into `[string]` by `prepareAskUserArguments` before
+// validation (tool path) and again in normalize (programmatic API path), so
+// both shapes stay accepted.
 
-import { Type } from "typebox";
+import { type Static, Type } from "typebox";
 import { ASK_USER_LIMITS } from "./types.ts";
 
 const OptionSchema = Type.Object({
@@ -60,7 +61,7 @@ const QuestionSchema = Type.Object({
     Type.Array(Type.String(), {
       maxItems: ASK_USER_LIMITS.maxChoiceOptions,
       description:
-        "Recommended option value(s) for choice questions; a plain string is also accepted and normalized to a one-element array",
+        "Recommended option value(s) for choice questions, or recommended text for text questions (single-element array); a plain string is also accepted and normalized to a one-element array",
     }),
   ),
   placeholder: Type.Optional(Type.String({ description: "Editor placeholder (text questions)" })),
@@ -111,11 +112,48 @@ export interface ExternalChoiceQuestion extends ExternalQuestion {
 
 export interface ExternalTextQuestion extends ExternalQuestion {
   type: "text";
-  recommendation?: string;
+  /**
+   * The schema forces the array shape through the tool path (Google
+   * compatibility), so a text recommendation arrives as a one-element array;
+   * a plain string is also accepted. Normalize unwraps both to a string.
+   */
+  recommendation?: string | string[];
 }
 
 export interface AskUserParams {
   title?: string;
   intro?: string;
   questions: ExternalQuestion[];
+}
+
+/** The validated argument shape pi passes to `execute` (schema Static type). */
+export type AskUserToolArgs = Static<typeof AskUserParamsSchema>;
+
+/**
+ * Pre-validation shim for raw model arguments (pi's `prepareArguments` hook).
+ *
+ * pi validates tool arguments against the schema before `execute`, and the
+ * schema declares `recommendation` as a string array for Google
+ * compatibility — so a plain-string recommendation from the model would be
+ * rejected before normalize could coerce it. Lift plain strings into
+ * one-element arrays here; anything else passes through untouched and keeps
+ * its strict validation/normalize error.
+ */
+export function prepareAskUserArguments(args: unknown): AskUserToolArgs {
+  if (typeof args !== "object" || args === null) return args as AskUserToolArgs;
+  const { questions } = args as { questions?: unknown };
+  if (!Array.isArray(questions)) return args as AskUserToolArgs;
+  return {
+    ...(args as AskUserToolArgs),
+    questions: questions.map((question) =>
+      typeof question === "object" &&
+      question !== null &&
+      typeof (question as { recommendation?: unknown }).recommendation === "string"
+        ? {
+            ...question,
+            recommendation: [(question as { recommendation: string }).recommendation],
+          }
+        : question,
+    ) as AskUserToolArgs["questions"],
+  };
 }

@@ -390,7 +390,12 @@ describe("askUserExtension lifecycle", () => {
 
   function makeExtensionPi() {
     const handlers = new Map<string, Handler[]>();
-    const tools: Array<{ name: string; label?: string; description: string }> = [];
+    const tools: Array<{
+      name: string;
+      label?: string;
+      description: string;
+      prepareArguments?: (args: unknown) => unknown;
+    }> = [];
     const pi = {
       on: (name: string, handler: Handler) => {
         const list = handlers.get(name) ?? [];
@@ -413,7 +418,14 @@ describe("askUserExtension lifecycle", () => {
     return { type: "message", id, message: { role: "toolResult", toolCallId } };
   }
 
-  const flushTimers = () => new Promise((resolve) => setTimeout(resolve, 10));
+  const flushTimers = (ms = 10) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  // Real timers (the existing style here) need polling to observe bounded
+  // retries without flaking on a loaded runner: wait until condition or deadline.
+  async function until(condition: () => boolean, deadlineMs = 2000): Promise<void> {
+    const start = Date.now();
+    while (!condition() && Date.now() - start < deadlineMs) await flushTimers(20);
+  }
 
   it("registers the tool, the entry renderer, and its event subscriptions at factory time", () => {
     const { pi, handlers, tools } = makeExtensionPi();
@@ -513,6 +525,196 @@ describe("askUserExtension lifecycle", () => {
     );
     await flushTimers();
     expect(pi.setLabel).not.toHaveBeenCalled();
+  });
+
+  it("retries the deferred lookup until the session append lands", async () => {
+    const { pi, handlers } = makeExtensionPi();
+    askUserExtension(pi);
+
+    const handler = handlers.get("tool_result")?.[0];
+    if (!handler) throw new Error("no tool_result handler");
+    let calls = 0;
+    const getEntries = () => {
+      calls += 1;
+      return calls >= 3 ? [entry("tc-1", "entry-late")] : [];
+    };
+    handler(
+      { toolName: ASK_USER_TOOL_NAME, toolCallId: "tc-1", isError: false },
+      { sessionManager: { getEntries } },
+    );
+
+    await until(() => calls >= 3);
+    await flushTimers(30); // any spurious further attempt would land here
+    expect(pi.setLabel).toHaveBeenCalledWith("entry-late", "decision");
+    expect(calls).toBe(3);
+  });
+
+  it("gives up after the bounded retries when the entry never appears", async () => {
+    const { pi, handlers } = makeExtensionPi();
+    askUserExtension(pi);
+
+    const handler = handlers.get("tool_result")?.[0];
+    if (!handler) throw new Error("no tool_result handler");
+    let calls = 0;
+    const getEntries = () => {
+      calls += 1;
+      return [];
+    };
+    handler(
+      { toolName: ASK_USER_TOOL_NAME, toolCallId: "tc-1", isError: false },
+      { sessionManager: { getEntries } },
+    );
+
+    // First attempt plus exactly two retries; no more after that.
+    await until(() => calls >= 3);
+    await flushTimers(100);
+    expect(calls).toBe(3);
+    expect(pi.setLabel).not.toHaveBeenCalled();
+  });
+
+  it("re-enables labeling after a shutdown/start cycle on one extension instance", async () => {
+    const { pi, handlers } = makeExtensionPi();
+    askUserExtension(pi);
+
+    for (const shutdown of handlers.get("session_shutdown") ?? []) shutdown();
+    // createSessionNameTracker registers a session_start handler too; the
+    // extension's re-registration handler is the last one.
+    const sessionStart = handlers.get("session_start")?.at(-1);
+    if (!sessionStart) throw new Error("no session_start handler");
+    await sessionStart(
+      {},
+      {
+        cwd: "/tmp",
+        isProjectTrusted: () => false,
+        sessionManager: {
+          getSessionId: () => "session-2",
+          getEntries: () => [entry("tc-1", "entry-1")],
+        },
+        ui: { notify: vi.fn() },
+      },
+    );
+
+    const handler = handlers.get("tool_result")?.[0];
+    if (!handler) throw new Error("no tool_result handler");
+    handler(
+      { toolName: ASK_USER_TOOL_NAME, toolCallId: "tc-1", isError: false },
+      { sessionManager: { getEntries: () => [entry("tc-1", "entry-1")] } },
+    );
+    await flushTimers();
+    expect(pi.setLabel).toHaveBeenCalledWith("entry-1", "decision");
+  });
+
+  it("registers prepareArguments that lifts plain-string recommendations before validation", () => {
+    const { pi, tools } = makeExtensionPi();
+    askUserExtension(pi);
+
+    const tool = tools.find((t) => t.name === ASK_USER_TOOL_NAME);
+    if (!tool?.prepareArguments) throw new Error("tool has no prepareArguments");
+    const question = {
+      type: "choice",
+      id: "c1",
+      header: "Pick",
+      prompt: "Which one?",
+      options: [
+        { value: "a", label: "A" },
+        { value: "b", label: "B" },
+      ],
+      recommendation: "a",
+    };
+    expect(tool.prepareArguments({ questions: [question] })).toEqual({
+      questions: [{ ...question, recommendation: ["a"] }],
+    });
+  });
+
+  it("threads a bell:false config through session_start into the tool's form run", async () => {
+    const fixtureRoot = mkdtempSync(path.join(tmpdir(), "pi-ask-bell-"));
+    try {
+      mkdirSync(path.join(fixtureRoot, "pi-ask"), { recursive: true });
+      writeFileSync(
+        path.join(fixtureRoot, "pi-ask", "config.json"),
+        JSON.stringify({ "ask-user": { bell: false } }),
+      );
+
+      const previous = process.env.PI_CODING_AGENT_DIR;
+      process.env.PI_CODING_AGENT_DIR = fixtureRoot;
+      const write = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+      try {
+        const { pi, handlers, tools } = makeExtensionPi();
+        askUserExtension(pi);
+
+        const sessionStart = handlers.get("session_start")?.at(-1);
+        if (!sessionStart) throw new Error("no session_start handler");
+        await sessionStart(
+          {},
+          {
+            cwd: fixtureRoot,
+            isProjectTrusted: () => false,
+            sessionManager: { getSessionId: () => "session-1", getEntries: () => [] },
+            ui: { notify: vi.fn() },
+          },
+        );
+
+        const reRegistered = tools[tools.length - 1] as {
+          execute?: (
+            toolCallId: string,
+            params: unknown,
+            signal: AbortSignal | undefined,
+            onUpdate: unknown,
+            ctx: unknown,
+          ) => Promise<unknown>;
+        };
+        if (!reRegistered.execute) throw new Error("tool has no execute");
+        const ctx = {
+          cwd: "/tmp",
+          hasUI: true,
+          mode: "tui",
+          abort: vi.fn(),
+          ui: {
+            custom: async () => ({
+              outcome: "submitted",
+              responses: [
+                {
+                  questionId: "c1",
+                  answer: {
+                    kind: "choice",
+                    answered: true,
+                    options: [{ value: "a", label: "A", selected: true }],
+                  },
+                },
+              ],
+            }),
+            notify: vi.fn(),
+            setWorkingVisible: vi.fn(),
+            setTitle: vi.fn(),
+          },
+        };
+        const params = {
+          questions: [
+            {
+              type: "choice",
+              id: "c1",
+              header: "Pick",
+              prompt: "Which one?",
+              options: [
+                { value: "a", label: "A" },
+                { value: "b", label: "B" },
+              ],
+            },
+          ],
+        };
+        await reRegistered.execute("tc-1", params, undefined, undefined, ctx);
+        expect(write).not.toHaveBeenCalledWith("\x07");
+      } finally {
+        write.mockRestore();
+        if (previous === undefined) {
+          delete process.env.PI_CODING_AGENT_DIR;
+        } else {
+          process.env.PI_CODING_AGENT_DIR = previous;
+        }
+      }
+    } finally {
+      rmSync(fixtureRoot, { recursive: true, force: true });
+    }
   });
 
   it("session_start re-registers the tool with the resolved prompt surface", async () => {
@@ -751,6 +953,38 @@ describe("executeAskUser error paths and side effects", () => {
       ),
     ).resolves.toBeDefined();
     expect(ctx.ui.setTitle).toBeUndefined();
+  });
+
+  it("sounds the bell by default and honors behavior bell:false", async () => {
+    const write = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    try {
+      const pi = makePi();
+      const { ctx } = makeCtx(async () => submittedOutcome());
+
+      await executeAskUser(
+        makeSubmittedParams(),
+        undefined,
+        ctx,
+        new ActiveQuestionnaireLock(),
+        pi,
+      );
+      expect(write).toHaveBeenCalledWith("\x07");
+
+      write.mockClear();
+      await executeAskUser(
+        makeSubmittedParams(),
+        undefined,
+        makeCtx(async () => submittedOutcome()).ctx,
+        new ActiveQuestionnaireLock(),
+        pi,
+        undefined,
+        undefined,
+        { bell: false },
+      );
+      expect(write).not.toHaveBeenCalledWith("\x07");
+    } finally {
+      write.mockRestore();
+    }
   });
 });
 

@@ -1,6 +1,6 @@
 import { Check } from "typebox/value";
 import { describe, expect, it } from "vitest";
-import { AskUserParamsSchema } from "../src/schema.ts";
+import { AskUserParamsSchema, prepareAskUserArguments } from "../src/schema.ts";
 
 const validParams = {
   title: "Decide",
@@ -230,5 +230,74 @@ describe("AskUserParamsSchema boundaries", () => {
 
   it("accepts an option without description or details", () => {
     expect(Check(AskUserParamsSchema, { questions: [choiceWith(2)] })).toBe(true);
+  });
+});
+
+describe("prepareAskUserArguments", () => {
+  function choiceQuestion() {
+    return {
+      type: "choice",
+      id: "c",
+      header: "C",
+      prompt: "P?",
+      options: [
+        { value: "a", label: "A" },
+        { value: "b", label: "B" },
+      ],
+    };
+  }
+
+  it("lifts a plain-string recommendation into a one-element array", () => {
+    expect(
+      prepareAskUserArguments({ questions: [{ ...choiceQuestion(), recommendation: "a" }] }),
+    ).toEqual({ questions: [{ ...choiceQuestion(), recommendation: ["a"] }] });
+  });
+
+  it("makes a plain-string payload pass schema validation", () => {
+    const prepared = prepareAskUserArguments({
+      title: "T",
+      questions: [{ ...choiceQuestion(), recommendation: "a" }],
+    });
+    expect(Check(AskUserParamsSchema, prepared)).toBe(true);
+  });
+
+  it("lifts per-question across a mixed choice/text questionnaire", () => {
+    const prepared = prepareAskUserArguments({
+      questions: [
+        { ...choiceQuestion(), recommendation: "a" },
+        { type: "text", id: "t", header: "H", prompt: "P?", recommendation: "some text" },
+      ],
+    });
+    expect(prepared.questions[0]?.recommendation).toEqual(["a"]);
+    expect(prepared.questions[1]?.recommendation).toEqual(["some text"]);
+  });
+
+  it("leaves array and absent recommendations untouched", () => {
+    const args = {
+      questions: [
+        { ...choiceQuestion(), recommendation: ["a", "b"] },
+        { type: "text", id: "t", header: "H", prompt: "P?" },
+      ],
+    };
+    expect(prepareAskUserArguments(args)).toEqual(args);
+  });
+
+  it("does not mutate the input arguments", () => {
+    const args = { questions: [{ ...choiceQuestion(), recommendation: "a" }] };
+    prepareAskUserArguments(args);
+    expect(args.questions[0]?.recommendation).toBe("a");
+  });
+
+  it("returns malformed args unchanged for the strict validation error", () => {
+    for (const malformed of [null, undefined, "string", 42, [], { questions: "nope" }]) {
+      expect(prepareAskUserArguments(malformed)).toBe(malformed);
+    }
+  });
+
+  it("ignores non-question entries inside the questions array", () => {
+    const args = {
+      questions: [null, "junk", { type: "text", id: "t", header: "H", prompt: "P?" }],
+    };
+    expect(prepareAskUserArguments(args)).toEqual(args);
   });
 });
