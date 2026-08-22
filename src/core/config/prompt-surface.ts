@@ -5,6 +5,7 @@
 // trust-requiring resource (e.g. .pi/settings.json).
 
 import {
+  CONFIG_DIR_NAME,
   type ExtensionContext,
   hasTrustRequiringProjectResources,
 } from "@earendil-works/pi-coding-agent";
@@ -26,6 +27,7 @@ export interface SuiPiToolPromptSurface {
 export type ToolPromptSurfaceDiagnosticCode =
   | "invalidPromptSurfaceConfig"
   | "invalidPromptSurfaceField"
+  | "invalidAskUserBehaviorConfig"
   | "projectPromptSurfaceIgnored";
 
 export interface ToolPromptSurfaceDiagnostic {
@@ -36,11 +38,15 @@ export interface ToolPromptSurfaceDiagnostic {
   message: string;
 }
 
-export interface ResolveToolPromptSurfaceOptions extends PiAskConfigOptions {
+/** Options shared by every resolver that reads scoped pi-ask config sections. */
+interface ScopedSectionReadOptions extends PiAskConfigOptions {
   section: string;
   toolName: string;
-  defaults: SuiPiToolPromptSurface;
   ctx: Pick<ExtensionContext, "cwd" | "isProjectTrusted">;
+}
+
+export interface ResolveToolPromptSurfaceOptions extends ScopedSectionReadOptions {
+  defaults: SuiPiToolPromptSurface;
 }
 
 export interface ResolveToolPromptSurfaceResult {
@@ -66,6 +72,10 @@ const PROMPT_SURFACE_CONFIG_KEYS = new Set<string>([
 
 const TOOL_ENTRY_KEYS = new Set<string>(["promptSurface"]);
 
+// Section-level keys outside `tools`: `bell` is consumed by
+// resolveAskUserBehavior below, so it must not trip the unknown-key checks.
+const SECTION_EXTRA_KEYS = new Set<string>(["bell"]);
+
 const PROMPT_SURFACE_DIAGNOSTICS_KEY = Symbol.for(
   "pi-ask/core/tool-prompt-surface/notified-diagnostics",
 );
@@ -76,25 +86,11 @@ const PROMPT_SURFACE_DIAGNOSTICS_KEY = Symbol.for(
 export function resolveToolPromptSurface(
   options: ResolveToolPromptSurfaceOptions,
 ): ResolveToolPromptSurfaceResult {
-  const diagnostics: ToolPromptSurfaceDiagnostic[] = [];
+  const { globalSection, projectSection, diagnostics } = loadScopedConfigSections(options);
   let surface = clonePromptSurface(options.defaults);
 
-  const globalSection = loadPiAskConfigSectionForScope(options.section, options.ctx.cwd, {
-    scope: "global",
-    homeDir: options.homeDir,
-  });
   surface = applyPromptSurfaceScope(surface, options, "global", globalSection, diagnostics);
-
-  // The project config is read, parsed, and validated only when the project is
-  // trusted — an untrusted project's config is never touched (no read, no parse,
-  // no diagnostics beyond the refusal below).
-  const hasTrustMarker = hasTrustRequiringProjectResources(options.ctx.cwd);
-  const projectTrusted = options.ctx.isProjectTrusted();
-  if (hasTrustMarker && projectTrusted) {
-    const projectSection = loadPiAskConfigSectionForScope(options.section, options.ctx.cwd, {
-      scope: "project",
-      homeDir: options.homeDir,
-    });
+  if (projectSection) {
     const projectPromptSurface = getPromptSurfaceConfig(projectSection, options.toolName, {
       diagnostics,
       options,
@@ -113,6 +109,36 @@ export function resolveToolPromptSurface(
         diagnostics,
       );
     }
+  }
+
+  return { surface, diagnostics };
+}
+
+/**
+ * Load one config section from both scopes with the shared trust gate: the
+ * project config is read, parsed, and validated only when the project is
+ * trusted — an untrusted project's config is never touched (no read, no parse,
+ * no diagnostics beyond the refusal below).
+ */
+function loadScopedConfigSections(options: ScopedSectionReadOptions): {
+  globalSection: Record<string, unknown> | null;
+  projectSection: Record<string, unknown> | null;
+  diagnostics: ToolPromptSurfaceDiagnostic[];
+} {
+  const diagnostics: ToolPromptSurfaceDiagnostic[] = [];
+  const globalSection = loadPiAskConfigSectionForScope(options.section, options.ctx.cwd, {
+    scope: "global",
+    homeDir: options.homeDir,
+  });
+
+  const hasTrustMarker = hasTrustRequiringProjectResources(options.ctx.cwd);
+  const projectTrusted = options.ctx.isProjectTrusted();
+  let projectSection: Record<string, unknown> | null = null;
+  if (hasTrustMarker && projectTrusted) {
+    projectSection = loadPiAskConfigSectionForScope(options.section, options.ctx.cwd, {
+      scope: "project",
+      homeDir: options.homeDir,
+    });
   } else if (hasProjectConfig(options.ctx.cwd)) {
     diagnostics.push({
       code: "projectPromptSurfaceIgnored",
@@ -121,11 +147,11 @@ export function resolveToolPromptSurface(
       toolName: options.toolName,
       message: hasTrustMarker
         ? `Project prompt-surface overrides for ${options.toolName} were ignored because the project is not trusted in PI.`
-        : `Project prompt-surface overrides for ${options.toolName} were ignored because ${options.ctx.cwd}/.pi/pi-ask/config.json is not PI trust-gated. Add .pi/settings.json and trust the project to enable them.`,
+        : `Project prompt-surface overrides for ${options.toolName} were ignored because ${options.ctx.cwd}/${CONFIG_DIR_NAME}/pi-ask/config.json is not PI trust-gated. Add ${CONFIG_DIR_NAME}/settings.json and trust the project to enable them.`,
     });
   }
 
-  return { surface, diagnostics };
+  return { globalSection, projectSection, diagnostics };
 }
 
 /** Notify prompt-surface diagnostics once per session/tool/diagnostic code. */
@@ -152,6 +178,57 @@ export function notifyToolPromptSurfaceDiagnostics(
     state.notified.add(key);
     ctx.ui.notify(diagnostic.message, "warning");
   }
+}
+
+// ── Behavior settings ──────────────────────────────────────────────────────
+
+/** Non-prompt extension behavior settings resolved from pi-ask config. */
+export interface AskUserBehavior {
+  /** Sound the terminal bell (BEL) when a form opens. */
+  bell: boolean;
+}
+
+export interface ResolveAskUserBehaviorOptions extends ScopedSectionReadOptions {
+  defaults: AskUserBehavior;
+}
+
+export interface ResolveAskUserBehaviorResult {
+  behavior: AskUserBehavior;
+  diagnostics: ToolPromptSurfaceDiagnostic[];
+}
+
+/** Resolve extension behavior settings (e.g. `bell`) from defaults + config. */
+export function resolveAskUserBehavior(
+  options: ResolveAskUserBehaviorOptions,
+): ResolveAskUserBehaviorResult {
+  const { globalSection, projectSection, diagnostics } = loadScopedConfigSections(options);
+  let behavior = { ...options.defaults };
+  behavior = applyBellScope(behavior, options, "global", globalSection, diagnostics);
+  if (projectSection) {
+    behavior = applyBellScope(behavior, options, "project", projectSection, diagnostics);
+  }
+  return { behavior, diagnostics };
+}
+
+function applyBellScope(
+  current: AskUserBehavior,
+  options: ResolveAskUserBehaviorOptions,
+  scope: PromptSurfaceScope,
+  sectionConfig: Record<string, unknown> | null,
+  diagnostics: ToolPromptSurfaceDiagnostic[],
+): AskUserBehavior {
+  if (!sectionConfig) return current;
+  const value = sectionConfig.bell;
+  if (value === undefined) return current;
+  if (typeof value === "boolean") return { ...current, bell: value };
+  diagnostics.push({
+    code: "invalidAskUserBehaviorConfig",
+    scope,
+    section: options.section,
+    toolName: options.toolName,
+    message: `Invalid ${options.section} config: bell must be a boolean (got ${typeof value}).`,
+  });
+  return current;
 }
 
 // ── Scope helpers ──────────────────────────────────────────────────────────
@@ -256,7 +333,7 @@ function getPromptSurfaceConfig(
   pushUnknownKeyDiagnostics(
     deps,
     deps.options.section,
-    new Set<string>(["tools"]),
+    new Set<string>(["tools", ...SECTION_EXTRA_KEYS]),
     Object.keys(sectionConfig),
   );
   if (sectionConfig.tools === undefined) return null;

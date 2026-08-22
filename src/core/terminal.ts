@@ -17,6 +17,12 @@ export interface TitleTarget {
   };
 }
 
+/** Options for the waiting signal. */
+export interface WaitingSignalOptions {
+  /** Sound the audible bell. Default: true. */
+  bell?: boolean;
+}
+
 /**
  * Format pi's canonical terminal title from session name and cwd.
  * Falls back gracefully when either is missing.
@@ -44,9 +50,13 @@ function signalBell(): void {
 
 /**
  * Set the terminal title to indicate the agent is waiting for user input.
- * Prefixes with ● and sounds the terminal bell.
+ * Prefixes with ● and (unless disabled) sounds the terminal bell.
  */
-export function signalWaiting(ctx: TitleTarget, title: string): void {
+export function signalWaiting(
+  ctx: TitleTarget,
+  title: string,
+  options: WaitingSignalOptions = {},
+): void {
   ctx.ui.setTitle?.(`${WAITING_SYMBOL}  ${title}`);
-  signalBell();
+  if (options.bell !== false) signalBell();
 }

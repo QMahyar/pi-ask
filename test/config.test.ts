@@ -5,8 +5,10 @@ import { hasTrustRequiringProjectResources } from "@earendil-works/pi-coding-age
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readJsonFile } from "../src/core/config/config.ts";
 import {
+  type AskUserBehavior,
   notifyToolPromptSurfaceDiagnostics,
   type ResolveToolPromptSurfaceOptions,
+  resolveAskUserBehavior,
   resolveToolPromptSurface,
   type SuiPiToolPromptSurface,
   type ToolPromptSurfaceDiagnostic,
@@ -267,6 +269,76 @@ describe("trust gate", () => {
     mkdirSync(projectCwd, { recursive: true });
     const { surface, diagnostics } = resolve(projectCwd, false);
     expect(surface.description).toBe("default description");
+    expect(diagnostics).toHaveLength(0);
+  });
+});
+
+describe("resolveAskUserBehavior (bell)", () => {
+  const behaviorDefaults: AskUserBehavior = { bell: true };
+
+  function resolveBehavior(cwd: string, trusted: boolean, homeDir = fixtureRoot) {
+    return resolveAskUserBehavior({
+      section: "ask-user",
+      toolName: "ask_user",
+      defaults: behaviorDefaults,
+      ctx: { cwd, isProjectTrusted: () => trusted },
+      homeDir,
+    });
+  }
+
+  it("defaults to bell enabled with no config present", () => {
+    const { behavior, diagnostics } = resolveBehavior(fixtureRoot, false);
+    expect(behavior.bell).toBe(true);
+    expect(diagnostics).toHaveLength(0);
+  });
+
+  it("disables the bell from the global config", () => {
+    writeJson(globalConfigFile, { "ask-user": { bell: false } });
+    const { behavior, diagnostics } = resolveBehavior(fixtureRoot, false);
+    expect(behavior.bell).toBe(false);
+    expect(diagnostics).toHaveLength(0);
+  });
+
+  it("lets a trusted project override the global value", () => {
+    writeJson(globalConfigFile, { "ask-user": { bell: false } });
+    const projectCwd = path.join(fixtureRoot, "project");
+    writeJson(path.join(projectCwd, ".pi", "settings.json"), {});
+    writeJson(path.join(projectCwd, ".pi", "pi-ask", "config.json"), {
+      "ask-user": { bell: true },
+    });
+    const { behavior, diagnostics } = resolveBehavior(projectCwd, true);
+    expect(behavior.bell).toBe(true);
+    expect(diagnostics).toHaveLength(0);
+  });
+
+  it("ignores an untrusted project config and reports the refusal", () => {
+    const projectCwd = path.join(fixtureRoot, "project");
+    writeJson(path.join(projectCwd, ".pi", "settings.json"), {});
+    writeJson(path.join(projectCwd, ".pi", "pi-ask", "config.json"), {
+      "ask-user": { bell: false },
+    });
+    const { behavior, diagnostics } = resolveBehavior(projectCwd, false);
+    expect(behavior.bell).toBe(true);
+    expect(
+      findDiagnostic(diagnostics, "projectPromptSurfaceIgnored", "not trusted in PI"),
+    ).toBeDefined();
+  });
+
+  it("diagnoses a non-boolean bell and falls back to the default", () => {
+    writeJson(globalConfigFile, { "ask-user": { bell: "nope" } });
+    const { behavior, diagnostics } = resolveBehavior(fixtureRoot, false);
+    expect(behavior.bell).toBe(true);
+    const invalid = findDiagnostic(
+      diagnostics,
+      "invalidAskUserBehaviorConfig",
+      "bell must be a boolean",
+    );
+    expect(invalid).toBeDefined();
+  });
+
+  it("does not trip the prompt-surface unknown-key diagnostics for the bell key", () => {
+    writeJson(globalConfigFile, { "ask-user": { bell: false } });
+    const { diagnostics } = resolve(fixtureRoot, false);
     expect(diagnostics).toHaveLength(0);
   });
 });

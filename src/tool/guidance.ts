@@ -22,3 +22,9 @@ export const ASK_USER_PROMPT_SURFACE_DEFAULTS = {
   promptSnippet,
   promptGuidelines: [...promptGuidelines],
 };
+
+/** Package defaults for extension behavior settings (used by the config resolver). */
+export const ASK_USER_BEHAVIOR_DEFAULTS = {
+  /** Sound the terminal bell when a form opens. */
+  bell: true,
+};

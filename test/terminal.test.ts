@@ -1,5 +1,41 @@
-import { describe, expect, it } from "vitest";
-import { formatTitle } from "../src/core/terminal.ts";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { formatTitle, signalWaiting } from "../src/core/terminal.ts";
+
+describe("signalWaiting", () => {
+  const writes: unknown[] = [];
+  let spy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    spy = vi.spyOn(process.stdout, "write").mockImplementation((chunk: unknown) => {
+      writes.push(chunk);
+      return true;
+    });
+    writes.length = 0;
+  });
+
+  afterEach(() => {
+    spy.mockRestore();
+  });
+
+  function titleTarget(): { ui: { setTitle: (title: string) => void } } {
+    return { ui: { setTitle: () => {} } };
+  }
+
+  it("sets the waiting title and sounds the bell by default", () => {
+    signalWaiting(titleTarget(), "pi — waiting");
+    expect(writes).toContain("\x07");
+  });
+
+  it("sets the title without the bell when bell: false", () => {
+    signalWaiting(titleTarget(), "pi — waiting", { bell: false });
+    expect(writes).not.toContain("\x07");
+  });
+
+  it("treats an explicit bell: true the same as the default", () => {
+    signalWaiting(titleTarget(), "pi — waiting", { bell: true });
+    expect(writes).toContain("\x07");
+  });
+});
 
 describe("formatTitle", () => {
   it("formats the π title from session name and cwd basename", () => {
